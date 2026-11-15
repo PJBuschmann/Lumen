@@ -1,0 +1,27 @@
+:root {
+  color-scheme: dark;
+  --ink: #0f1a2e;
+  --ink-soft: #1a2a45;
+  --paper: #f4efe6;
+  --muted: #a9b6cc;
+  --glow: #ffe6a3;
+  font-family: ui-rounded, 'Nunito', system-ui, -apple-system, 'Segoe UI', sans-serif;
+}
+* { box-sizing: border-box; }
+html, body, #root { height: 100%; margin: 0; }
+body { background: var(--ink); color: var(--paper); -webkit-tap-highlight-color: transparent; }
+.app { max-width: 520px; margin: 0 auto; padding: calc(env(safe-area-inset-top) + 16px) 16px 24px; }
+.app.loading { display: grid; place-items: center; height: 100%; color: var(--muted); }
+.top h1 { margin: 0; font-weight: 600; letter-spacing: 0.08em; color: var(--glow); }
+.light { font-size: 2rem; margin: 8px 0 0; font-variant-numeric: tabular-nums; }
+.rate { margin: 4px 0 0; color: var(--muted); font-size: 0.9rem; }
+.upgrades { display: grid; gap: 10px; margin-top: 20px; }
+.upgrade { display: grid; gap: 2px; text-align: left; padding: 12px 14px; border-radius: 14px; border: 1px solid #2c3f63;
+  background: var(--ink-soft); color: var(--paper); font: inherit; min-height: 44px; }
+.upgrade:disabled { opacity: 0.5; }
+.upgrade .name { font-weight: 600; }
+.upgrade .desc { color: var(--muted); font-size: 0.85rem; }
+.upgrade .cost { color: var(--glow); font-variant-numeric: tabular-nums; }
+.sheet { position: fixed; inset: auto 16px 16px; padding: 16px; border-radius: 18px; background: #22345a; box-shadow: 0 10px 40px #0008; }
+.sheet h2 { margin: 0 0 8px; color: var(--glow); }
+.sheet button { margin-top: 8px; padding: 10px 14px; border-radius: 12px; border: 0; background: var(--glow); color: var(--ink); font: inherit; font-weight: 600; }
