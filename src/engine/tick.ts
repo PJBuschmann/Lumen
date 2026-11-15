@@ -7,7 +7,9 @@
  * of ships (and the Light they earn) depends only on elapsed time, never on frame size.
  */
 import { ENGINE } from '../content/engine';
-import { runAutomation } from './automation';
+import { runHeartbeat } from './automation';
+import { coastAutomated } from './coast';
+import { advancePhase, tidesAutomated } from './tides';
 import { getDerived } from './derive';
 import { pushEvent, reachMilestone } from './events';
 import { beatInterval } from './night';
@@ -18,7 +20,9 @@ const EPS = 1e-9;
 
 /** Seconds until the next scheduled event. */
 function timeToNextEvent(state: GameState): number {
-  return Math.max(0, state.night.nextBeat - state.night.runTime);
+  let until = state.night.nextBeat - state.night.runTime;
+  if (state.tides.revealed) until = Math.min(until, state.tides.phaseEndsAt - state.time);
+  return Math.max(0, until);
 }
 
 /** Integrate one constant-rate segment. */
@@ -27,6 +31,27 @@ function integrate(state: GameState, d: Derived, step: number, emit: boolean): v
   state.time += step;
   night.runTime += step;
   state.stats.playTime += step;
+
+  // Wider layers accrue at their held rates. Once a layer is automated its income goes
+  // straight to the purse; before that it waits for the player's prestige.
+  if (state.coast.revealed) {
+    const stone = d.stonePerSecond.mul(step);
+    if (coastAutomated(state)) {
+      state.coast.stone = state.coast.stone.add(stone);
+      state.coast.stoneTotal = state.coast.stoneTotal.add(stone);
+    } else {
+      state.coast.pending = state.coast.pending.add(stone);
+    }
+  }
+  if (state.tides.revealed) {
+    const tide = d.tidePerSecond.mul(step);
+    if (tidesAutomated(state)) {
+      state.tides.tide = state.tides.tide.add(tide);
+      state.tides.tideTotal = state.tides.tideTotal.add(tide);
+    } else {
+      state.tides.pending = state.tides.pending.add(tide);
+    }
+  }
 
   const acc = night.shipAcc + d.shipsPerSecond * step;
   const arrived = Math.floor(acc);
@@ -69,14 +94,19 @@ function integrate(state: GameState, d: Derived, step: number, emit: boolean): v
 /** The automation heartbeat. Automation and passive flows act here and only here. */
 function heartbeat(state: GameState): void {
   const night = state.night;
+  const elapsed = night.nextBeat - night.lastBeat;
   night.runTime = night.nextBeat;
   night.lastBeat = night.nextBeat;
   night.nextBeat = night.lastBeat + beatInterval(night.lastBeat);
-  runAutomation(state);
-  state.derived = null;
+  // Automation may begin a new night; the fresh night keeps its own schedule.
+  runHeartbeat(state, elapsed);
 }
 
 function fireDueEvents(state: GameState): void {
+  if (state.tides.revealed && state.tides.phaseEndsAt - state.time <= EPS) {
+    state.time = Math.max(state.time, state.tides.phaseEndsAt);
+    advancePhase(state);
+  }
   if (state.night.nextBeat - state.night.runTime <= EPS) heartbeat(state);
 }
 
@@ -122,6 +152,8 @@ export function applyOffline(
   const guidedBefore = next.stats.shipsGuided;
   const missedBefore = next.stats.shipsMissed;
   const glimmerBefore = next.dawn.glimmerTotal;
+  const stoneBefore = next.coast.stoneTotal.add(next.coast.pending);
+  const tideBefore = next.tides.tideTotal.add(next.tides.pending);
   const autoBefore = next.stats.autoPurchases;
   advanceInPlace(next, applied, false);
   next.stats.offlineTime += applied;
@@ -136,6 +168,8 @@ export function applyOffline(
       shipsMissed: next.stats.shipsMissed - missedBefore,
       // A higher reset can lower the running total; never report a negative gain.
       glimmerEarned: next.dawn.glimmerTotal.sub(glimmerBefore).max(0),
+      stoneEarned: next.coast.stoneTotal.add(next.coast.pending).sub(stoneBefore).max(0),
+      tideEarned: next.tides.tideTotal.add(next.tides.pending).sub(tideBefore).max(0),
       autoPurchases: next.stats.autoPurchases - autoBefore,
     },
   };

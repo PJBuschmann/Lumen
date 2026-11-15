@@ -70,3 +70,49 @@ was chosen and why, so it can be revisited.
 - **"Aurora in 2–3 weeks" is read as 17.5 days ±20%**, which is exactly 14 to 21 days.
 - **Milestone times are wall-clock from a fresh save**; active time is tracked separately and
   used for purchase gaps.
+
+## The wider layers (Coastline, Tides, and above)
+
+- **Wider layers earn their currency over time, not per reset.** Stone is surveyed
+  continuously at a rate set by the highest Glimmer ever held; Tide is drawn continuously at
+  a rate set by the coastline's power. The layer's prestige ("Survey the coast", "Turn the
+  tide") brings the waiting income home and begins a new night. Why: a classic "currency per
+  reset" formula makes progress proportional to how often you reset, which would leave a
+  four-sessions-a-day player dozens of times slower than an always-present one. Time-based
+  income keeps the two within the required factor of two.
+- **Income and costs are polynomials of the same degree** (rate ∝ power², cost ∝ level²).
+  With matching degrees, purchases arrive at a steady cadence for weeks: no exponential
+  blow-up and no walls. Exponential feel comes from what the purchases do: each adds orders
+  of magnitude to Light.
+- **A wider prestige only resets Night and Dawn.** Lighthouses, the shape of the tides and
+  (later) stars are never lost. This fits "nothing is ever lost" and keeps a reset cheap: the
+  layers below are automated and climb back in minutes.
+- **Stone income follows the Glimmer record, which only rises**, so a Survey never lowers
+  income; it only delays pushing the record further.
+- **Automation chain.** First Dawn: the apprentice buys Night upgrades. First Survey: Dawn's
+  Glimmer flows in continuously (1% of a Dawn per second, no reset) and Dawn upgrades are
+  bought. First Turn of the tide: Stone arrives without Surveys and lighthouses are built by
+  best value. Each handover also collects anything left waiting.
+- **Synergy is per shared level between orthogonal neighbours** (`min(levelA, levelB)`), so
+  clusters of evenly raised lighthouses beat one tall tower. Headlands and reefs trade cost
+  for power.
+- **The moon is real time**: eight phases of 90 s (before Linger). Phases trade ship traffic
+  against Light per ship, so income breathes without ever stopping. Swell is spent per phase:
+  every level helps always, and again while its phase is in the sky. Linger stretches a phase;
+  stretching busy phases raises Tide income.
+
+## Dawn, revised during the first Coastline balance pass
+
+- **The apprentice tends the whole lamp from the first Dawn** (no lessons to buy). Before
+  this change a player who left after their first Dawn came back to a stalled night: only
+  the wick was tended, so four hours away were worth minutes. The schema 2 -> 3 migration
+  hands back Glimmer spent on lessons.
+- **A long night makes a brighter dawn**: Glimmer is multiplied by `(1 + hours)^1.5`, capped
+  at 24 h, with a "Long vigil" upgrade that raises the exponent. Without it, rapid manual
+  resets beat patient play by a wide margin and the offline player reached the Coastline at
+  hour 24 instead of hour 4.
+- **The offline-heavy player's first sitting is 20 minutes** (later ones 15). The first Dawn
+  is designed to land at minute 15; a first session that ends on exactly that minute would
+  turn a one-second difference into a four-hour one.
+- **Important events are never crowded out.** Ship and automatic-purchase events are capped
+  per tick; milestones, reveals, prestiges and moon phases always get through.

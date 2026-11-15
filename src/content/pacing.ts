@@ -25,6 +25,8 @@ export const PACING = {
   offlineSchedule: {
     sessionStartHours: [0, 4, 9, 13],
     sessionMinutes: 15,
+    /** The very first sitting runs a little longer: a new player is still looking around. */
+    firstSessionMinutes: 20,
   },
 } as const;
 

@@ -40,6 +40,11 @@ export interface Sample {
   rate: number;
   /** log10(1 + x) of each prestige currency's running total. */
   glimmer: number;
+  stone: number;
+  tide: number;
+  /** Orders of magnitude of Light contributed by the coastline and by the tides. */
+  coastPower: number;
+  tidePower: number;
 }
 
 /** Upper edges (seconds) of the purchase-gap histogram buckets. */
@@ -78,8 +83,7 @@ interface Window {
 
 /** Is the offline-heavy player at the keyboard at `wall`, and until when? */
 export function offlineWindow(wall: number, jitter: (day: number, slot: number) => number): Window {
-  const { sessionStartHours, sessionMinutes } = PACING.offlineSchedule;
-  const length = sessionMinutes * 60;
+  const { sessionStartHours, sessionMinutes, firstSessionMinutes } = PACING.offlineSchedule;
   const day = Math.floor(wall / 86400);
   // Look at yesterday's last session through tomorrow's first.
   let nextStart = Infinity;
@@ -87,7 +91,9 @@ export function offlineWindow(wall: number, jitter: (day: number, slot: number) 
     for (let slot = 0; slot < sessionStartHours.length; slot++) {
       if (d < 0) continue;
       // The very first session starts at t = 0 exactly.
-      const start = d === 0 && slot === 0 ? 0 : d * 86400 + sessionStartHours[slot] * 3600 + jitter(d, slot);
+      const first = d === 0 && slot === 0;
+      const start = first ? 0 : d * 86400 + sessionStartHours[slot] * 3600 + jitter(d, slot);
+      const length = (first ? firstSessionMinutes : sessionMinutes) * 60;
       if (wall >= start && wall < start + length) return { inSession: true, endsAt: start + length };
       if (start > wall && start < nextStart) nextStart = start;
     }
@@ -102,6 +108,13 @@ function checkNumbers(state: GameState): boolean {
     isFiniteDecimal(state.stats.totalLight) &&
     isFiniteDecimal(state.dawn.glimmer) &&
     isFiniteDecimal(state.dawn.glimmerTotal) &&
+    isFiniteDecimal(state.coast.stone) &&
+    isFiniteDecimal(state.coast.stoneTotal) &&
+    isFiniteDecimal(state.coast.pending) &&
+    isFiniteDecimal(state.tides.tide) &&
+    isFiniteDecimal(state.tides.tideTotal) &&
+    isFiniteDecimal(state.tides.pending) &&
+    Number.isFinite(state.coast.record) &&
     Number.isFinite(state.time)
   );
 }
@@ -185,6 +198,10 @@ export function runBot(config: RunConfig): RunResult {
         light: log10p1(state.stats.totalLight),
         rate: log10p1(getDerived(state).lightPerSecond),
         glimmer: log10p1(state.dawn.glimmerTotal),
+        stone: log10p1(state.coast.stoneTotal),
+        tide: log10p1(state.tides.tideTotal),
+        coastPower: getDerived(state).coastPower,
+        tidePower: getDerived(state).tidePower,
       });
       nextSample = Math.max(nextSample + 30, nextSample * 1.03);
       if (!checkNumbers(state)) result.numericFailure = true;

@@ -4,12 +4,14 @@
  */
 import { formatDuration } from '../src/engine';
 import { POLICY_ORDER } from './bots/policies';
+import { applyOverrides } from './params';
 import type { PolicyName } from './bots/policies';
 import { runBot } from './runner';
 
 const policy = (process.argv[2] ?? 'greedy-best-roi') as PolicyName;
 const hours = Number(process.argv[3] ?? 6);
 const seed = Number(process.argv[4] ?? 1);
+applyOverrides(process.argv[5]);
 if (!POLICY_ORDER.includes(policy)) throw new Error(`Unknown policy ${policy}`);
 
 const result = runBot({ policy, seed, horizonSeconds: hours * 3600 });
@@ -24,6 +26,6 @@ const step = Math.max(1, Math.floor(result.samples.length / 24));
 for (let i = 0; i < result.samples.length; i += step) {
   const s = result.samples[i];
   console.log(
-    `  t=${formatDuration(s.t).padEnd(9)} light=e${s.light.toFixed(1).padEnd(7)} rate=e${s.rate.toFixed(1).padEnd(7)} glimmer=e${s.glimmer.toFixed(2)}`,
+    `  t=${formatDuration(s.t).padEnd(9)} light=e${s.light.toFixed(1).padEnd(7)} rate=e${s.rate.toFixed(1).padEnd(7)} glim=e${s.glimmer.toFixed(1).padEnd(6)} stone=e${s.stone.toFixed(2).padEnd(5)} tide=e${s.tide.toFixed(2).padEnd(5)} coast=${s.coastPower.toFixed(2).padEnd(6)} tideP=${s.tidePower.toFixed(2)}`,
   );
 }

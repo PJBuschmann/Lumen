@@ -13,6 +13,8 @@ import {
   dawnUpgradeMaxLevel,
   getDerived,
   glimmerMultiplier,
+  longNightBonus,
+  longNightPower,
   radianceMultiplier,
   resetDawn,
   seaLanesTraffic,
@@ -58,9 +60,9 @@ describe('dawn', () => {
     expect(next.events.some((e) => e.type === 'dawn')).toBe(true);
     // Lifetime stats are never lost.
     expect(next.stats.totalLight.eq(state.stats.totalLight)).toBe(true);
-    // The first dawn brings the apprentice.
-    expect(next.dawn.upgrades.apprentice).toBe(DAWN.freeApprenticeLevels);
-    expect(apprenticeSkills(next)).toEqual(['wick']);
+    // The first dawn brings the apprentice, who tends the whole lamp.
+    expect(apprenticeSkills(state)).toEqual([]);
+    expect(apprenticeSkills(next)).toEqual(DAWN.apprenticeTends);
   });
 
   it('Glimmer multiplies Light permanently', () => {
@@ -95,8 +97,8 @@ describe('dawn', () => {
 
   it('respects level caps and prices', () => {
     expect(dawnUpgradeMaxLevel('radiance')).toBe(Infinity);
-    expect(dawnUpgradeMaxLevel('apprentice')).toBe(4);
-    expect(dawnUpgradeAffordable('apprentice', 4, D('1e50'))).toBe(0);
+    expect(dawnUpgradeMaxLevel('vigil')).toBe(DAWN.upgrades.vigil.maxLevel);
+    expect(dawnUpgradeAffordable('vigil', DAWN.upgrades.vigil.maxLevel!, D('1e50'))).toBe(0);
     expect(dawnUpgradeAffordable('seaLanes', 0, D('1e50'))).toBe(DAWN.upgrades.seaLanes.maxLevel);
     expect(radianceMultiplier(3).toNumber()).toBeCloseTo(8, 9);
     expect(dawnUpgradeCost('radiance', 1).toNumber()).toBeCloseTo(
@@ -115,27 +117,44 @@ describe('dawn', () => {
     expect(next.night.light.toNumber()).toBeCloseTo(800, 9);
   });
 
-  it('resetDawn keeps what the apprentice has learned', () => {
+  it('a long night makes a brighter dawn', () => {
+    expect(longNightBonus(0, 0)).toBe(1);
+    const { refHours, power, capHours } = DAWN.longNight;
+    expect(longNightBonus(3600 * refHours, 0)).toBeCloseTo(2 ** power, 9);
+    expect(longNightBonus(3600 * 4, 0)).toBeGreaterThan(longNightBonus(3600, 0));
+    // Capped: a week away is worth as much as the cap.
+    expect(longNightBonus(7 * 86400, 0)).toBeCloseTo(longNightBonus(capHours * 3600, 0), 9);
+    expect(longNightBonus(-5, 0)).toBe(1);
+    // Long vigil raises the exponent.
+    expect(longNightPower(2)).toBeCloseTo(power + 0.2, 12);
+    expect(longNightBonus(3600 * 4, 3)).toBeGreaterThan(longNightBonus(3600 * 4, 0));
+
+    const quick = readyForDawn(16);
+    const patient = readyForDawn(16);
+    patient.night.runTime = 3 * 3600;
+    expect(dawnGain(patient).toNumber()).toBeCloseTo(dawnGain(quick).toNumber() * longNightBonus(3 * 3600, 0), 6);
+  });
+
+  it('resetDawn clears Glimmer and its upgrades but the apprentice stays', () => {
     let state = applyAction(readyForDawn(1e12), { type: 'dawn' });
-    state = applyAction(state, { type: 'buyDawnUpgrade', id: 'apprentice', count: 'max' });
     state = applyAction(state, { type: 'buyDawnUpgrade', id: 'seaLanes', count: 2 });
-    const learned = state.dawn.upgrades.apprentice;
-    expect(learned).toBeGreaterThan(1);
+    state = applyAction(state, { type: 'buyDawnUpgrade', id: 'vigil', count: 1 });
+    expect(state.dawn.upgrades.seaLanes).toBe(2);
     const copy = cloneState(state);
     resetDawn(copy);
-    expect(copy.dawn.upgrades.apprentice).toBe(learned);
-    expect(copy.dawn.upgrades.seaLanes).toBe(0);
+    expect(copy.dawn.upgrades).toEqual({ radiance: 0, seaLanes: 0, embers: 0, vigil: 0 });
     expect(copy.dawn.glimmer.toNumber()).toBe(0);
     expect(copy.dawn.glimmerTotal.toNumber()).toBe(0);
+    expect(copy.dawn.dawns).toBe(state.dawn.dawns);
+    expect(apprenticeSkills(copy).length).toBe(4);
     expect(copy.night.runTime).toBe(0);
   });
 });
 
 describe('apprentice keeper', () => {
-  function withApprentice(level: number): GameState {
+  function withApprentice(): GameState {
     const state = createInitialState(9);
     state.dawn.dawns = 1;
-    state.dawn.upgrades.apprentice = level;
     return state;
   }
 
@@ -147,31 +166,24 @@ describe('apprentice keeper', () => {
     expect(next.stats.autoPurchases).toBe(0);
   });
 
-  it('buys only what it has been taught', () => {
-    const state = withApprentice(1);
+  it('tends the whole lamp and never overspends', () => {
+    const state = withApprentice();
     state.night.light = D(1e9);
     const next = tick(state, 5);
-    expect(next.night.upgrades.wick).toBeGreaterThan(50);
-    expect(next.night.upgrades.oil).toBe(0);
-    expect(next.night.upgrades.lens).toBe(0);
-    expect(next.stats.autoPurchases).toBe(next.night.upgrades.wick);
+    expect(next.night.upgrades.wick).toBeGreaterThan(20);
+    expect(next.night.upgrades.oil).toBeGreaterThan(0);
+    expect(next.night.upgrades.lens).toBeGreaterThan(0);
+    expect(next.night.upgrades.rotation).toBeGreaterThan(0);
+    expect(next.night.light.gte(0)).toBe(true);
+    const levels = Object.values(next.night.upgrades).reduce((a, b) => a + b, 0);
+    expect(next.stats.autoPurchases).toBe(levels);
     // Automation is not counted as a player purchase.
     expect(next.stats.purchases).toBe(0);
     expect(next.events.some((e) => e.type === 'purchase' && e.auto)).toBe(true);
   });
 
-  it('a fully trained apprentice tends everything and never overspends', () => {
-    const state = withApprentice(4);
-    state.night.light = D(1e9);
-    const next = tick(state, 5);
-    expect(next.night.upgrades.oil).toBeGreaterThan(0);
-    expect(next.night.upgrades.lens).toBeGreaterThan(0);
-    expect(next.night.upgrades.rotation).toBeGreaterThan(0);
-    expect(next.night.light.gte(0)).toBe(true);
-  });
-
   it('plays the same online and offline (within 5%)', () => {
-    const base = withApprentice(4);
+    const base = withApprentice();
     base.dawn.glimmerTotal = D(40);
     const seconds = 2 * 3600;
 

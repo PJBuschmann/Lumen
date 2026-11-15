@@ -81,7 +81,7 @@ export interface Aggregate {
   peakLightLog: number;
 }
 
-const SAMPLE_KEYS: (keyof Omit<Sample, 't'>)[] = ['light', 'rate', 'glimmer'];
+const SAMPLE_KEYS: (keyof Omit<Sample, 't'>)[] = ['light', 'rate', 'glimmer', 'stone', 'tide', 'coastPower', 'tidePower'];
 
 /** Value of a step-held sample series at time t. */
 function sampleAt(samples: Sample[], t: number, key: keyof Omit<Sample, 't'>): number {
@@ -142,7 +142,7 @@ export function aggregate(results: RunResult[], horizonSeconds: number): Aggrega
       purchasesMedian: quantile(runs.map((r) => r.purchases).sort((a, b) => a - b), 0.5),
     });
 
-    const series = { light: [], rate: [], glimmer: [] } as GrowthSeries['series'];
+    const series = Object.fromEntries(SAMPLE_KEYS.map((key) => [key, [] as number[]])) as GrowthSeries['series'];
     const usable = grid.filter((t) => runs.some((r) => r.wallSeconds >= t));
     for (const key of SAMPLE_KEYS) {
       for (const t of usable) {

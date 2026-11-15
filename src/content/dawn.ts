@@ -6,22 +6,23 @@
  *  - `glimmerExponent` (gamma) and the Night snowball exponent K = 1/(1-A) are chosen so that
  *    K * gamma is about 1: Glimmer earned per minute is then roughly the same for short and
  *    long nights, which keeps idle and active play close together.
+ *  - `longNight` rewards patient nights so that idle and active play stay close together.
  *  - `multExponent` (beta) plus the Radiance upgrade's efficiency set how strongly Glimmer
  *    feeds back into Light. Keep K * gamma * beta_total well below 1 or the loop runs away.
  */
 import type { NightUpgradeId } from './night';
 
-export type DawnUpgradeId = 'apprentice' | 'radiance' | 'seaLanes' | 'embers';
+export type DawnUpgradeId = 'radiance' | 'seaLanes' | 'embers' | 'vigil';
 
 export type DawnUpgradeEffect =
-  /** Each level teaches the apprentice keeper to buy one more Night upgrade. */
-  | { kind: 'apprentice'; teaches: readonly NightUpgradeId[] }
   /** Multiplies Light per ship by perLevel^level. */
   | { kind: 'lightMult'; perLevel: number }
   /** Adds perLevel (as a fraction) to ship traffic per level. */
   | { kind: 'traffic'; perLevel: number }
   /** Each night begins with base * growth^(level-1) Light. */
-  | { kind: 'startLight'; base: number; growth: number };
+  | { kind: 'startLight'; base: number; growth: number }
+  /** Adds perLevel to the exponent of the long-night bonus. */
+  | { kind: 'vigil'; perLevel: number };
 
 export interface DawnUpgradeDef {
   id: DawnUpgradeId;
@@ -36,7 +37,7 @@ export interface DawnUpgradeDef {
   effect: DawnUpgradeEffect;
 }
 
-export const DAWN_UPGRADE_ORDER: readonly DawnUpgradeId[] = ['apprentice', 'radiance', 'seaLanes', 'embers'];
+export const DAWN_UPGRADE_ORDER: readonly DawnUpgradeId[] = ['seaLanes', 'embers', 'vigil', 'radiance'];
 
 export const DAWN = {
   /** Light earned in one night before the first Glimmer can be gathered. */
@@ -47,19 +48,15 @@ export const DAWN = {
   glimmerExponent: 0.25,
   /** Permanent Light multiplier = (1 + total Glimmer) ^ multExponent. */
   multExponent: 0.25,
-  /** The first Dawn brings an apprentice who already knows how to trim the wick. */
-  freeApprenticeLevels: 1,
+  /**
+   * A long night makes a brighter dawn: Glimmer is multiplied by
+   * (1 + hours of night / refHours) ^ power, counting at most capHours.
+   * This is what makes time away worth as much as rapid resets.
+   */
+  longNight: { refHours: 1, power: 1.5, capHours: 24 },
+  /** Night upgrades the apprentice keeper tends from the first Dawn onward. */
+  apprenticeTends: ['wick', 'oil', 'rotation', 'lens'] as readonly NightUpgradeId[],
   upgrades: {
-    apprentice: {
-      id: 'apprentice',
-      name: 'Apprentice keeper',
-      description: 'Your apprentice learns to tend one more part of the lamp on their own.',
-      baseCost: 3,
-      costRatio: 4,
-      maxLevel: 4,
-      permanent: true,
-      effect: { kind: 'apprentice', teaches: ['wick', 'oil', 'rotation', 'lens'] },
-    },
     radiance: {
       id: 'radiance',
       name: 'Radiance',
@@ -89,6 +86,16 @@ export const DAWN = {
       maxLevel: 6,
       permanent: false,
       effect: { kind: 'startLight', base: 100, growth: 8 },
+    },
+    vigil: {
+      id: 'vigil',
+      name: 'Long vigil',
+      description: 'You learn to love the small hours. Long nights brighten the dawn even more.',
+      baseCost: 8,
+      costRatio: 6,
+      maxLevel: 5,
+      permanent: false,
+      effect: { kind: 'vigil', perLevel: 0.1 },
     },
   } satisfies Record<DawnUpgradeId, DawnUpgradeDef> as Record<DawnUpgradeId, DawnUpgradeDef>,
 } as const;

@@ -16,6 +16,8 @@ const QUANTITIES = [
   { key: 'light', title: 'Lifetime Light', note: 'Orders of magnitude of all Light ever earned, median across seeds. Time axis is logarithmic.' },
   { key: 'rate', title: 'Light per second', note: 'Orders of magnitude of the current income; dips are prestige resets.' },
   { key: 'glimmer', title: 'Glimmer', note: 'Orders of magnitude of Glimmer gathered in the current run.' },
+  { key: 'stone', title: 'Stone', note: 'Orders of magnitude of all Stone surveyed (Coastline).' },
+  { key: 'tide', title: 'Tide', note: 'Orders of magnitude of all Tide drawn (Tides).' },
 ] as const;
 
 const SHORT_LABELS: Record<string, string> = {

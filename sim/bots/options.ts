@@ -19,7 +19,7 @@ import type { GameState } from '../../src/engine';
 import type { Option } from './types';
 
 /** Nominal value (in OoM) of upgrades whose benefit is convenience rather than a multiplier. */
-const CONVENIENCE = { apprentice: 0.35, embers: 0.04 };
+const CONVENIENCE = { embers: 0.04, vigil: 0.12 };
 
 export function nightOptions(state: GameState): Option[] {
   const options: Option[] = [];
@@ -63,11 +63,11 @@ export function dawnOptions(state: GameState): Option[] {
       case 'traffic':
         gain = Math.log10(seaLanesTraffic(level + 1) / seaLanesTraffic(level));
         break;
-      case 'apprentice':
-        gain = CONVENIENCE.apprentice;
-        break;
       case 'startLight':
         gain = CONVENIENCE.embers;
+        break;
+      case 'vigil':
+        gain = CONVENIENCE.vigil;
         break;
     }
     options.push({

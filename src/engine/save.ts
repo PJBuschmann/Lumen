@@ -6,10 +6,11 @@
  * so a damaged or hand-edited save can at worst lose the damaged field.
  */
 import { DAWN, DAWN_UPGRADE_ORDER } from '../content/dawn';
+import { PHASE_COUNT, TIDES } from '../content/tides';
 import { NIGHT_UPGRADE_ORDER } from '../content/night';
 import { parseDecimal } from './decimal';
 import type { Decimal } from './decimal';
-import { createInitialState } from './state';
+import { coastTileCount, createInitialState } from './state';
 import { MILESTONE_IDS, SCHEMA_VERSION } from './types';
 import type { GameState } from './types';
 
@@ -72,6 +73,26 @@ export function serializeState(state: GameState, savedAt: number): SaveFile {
         dawns: state.dawn.dawns,
         upgrades: { ...state.dawn.upgrades },
       },
+      coast: {
+        revealed: state.coast.revealed,
+        stone: dec(state.coast.stone),
+        stoneTotal: dec(state.coast.stoneTotal),
+        pending: dec(state.coast.pending),
+        surveys: state.coast.surveys,
+        levels: state.coast.levels.slice(),
+        record: state.coast.record,
+      },
+      tides: {
+        revealed: state.tides.revealed,
+        tide: dec(state.tides.tide),
+        tideTotal: dec(state.tides.tideTotal),
+        pending: dec(state.tides.pending),
+        turns: state.tides.turns,
+        phase: state.tides.phase,
+        phaseEndsAt: state.tides.phaseEndsAt,
+        swell: state.tides.swell.slice(),
+        linger: state.tides.linger.slice(),
+      },
       stats: {
         totalLight: dec(st.totalLight),
         bestRunLight: dec(st.bestRunLight),
@@ -109,10 +130,48 @@ export const MIGRATIONS: Record<number, (save: RawSave) => RawSave> = {
           glimmer: '0',
           glimmerTotal: '0',
           dawns: 0,
+          // Schema 2 shape: lessons for the apprentice were bought one by one.
           upgrades: { apprentice: 0, radiance: 0, seaLanes: 0, embers: 0 },
         },
         stats: { ...stats, autoPurchases: 0 },
       },
+    };
+  },
+  /**
+   * 2 -> 3: the Coastline and Tides layers arrive, both still out of sight. The apprentice
+   * no longer needs lessons (they tend the whole lamp from the first Dawn), so Glimmer spent
+   * on lessons is handed back; the new Long vigil upgrade starts at zero.
+   */
+  2: (save) => {
+    const dawn = isRecord(save.game.dawn) ? save.game.dawn : {};
+    const upgrades = isRecord(dawn.upgrades) ? dawn.upgrades : {};
+    const lessons = Math.max(0, Math.min(4, readInt(upgrades.apprentice, 0) - 1));
+    // Lessons cost 3 * 4^n Glimmer; the first one was free.
+    let refund = 0;
+    for (let n = 0; n < lessons; n++) refund += 3 * Math.pow(4, n);
+    const { apprentice: _dropped, ...kept } = upgrades;
+    return {
+    ...save,
+    game: {
+      ...save.game,
+      dawn: {
+        ...dawn,
+        glimmer: parseDecimal(dawn.glimmer).add(refund).toString(),
+        upgrades: { ...kept, vigil: 0 },
+      },
+      coast: { revealed: false, stone: '0', stoneTotal: '0', pending: '0', surveys: 0, levels: [], record: 0 },
+      tides: {
+        revealed: false,
+        tide: '0',
+        tideTotal: '0',
+        pending: '0',
+        turns: 0,
+        phase: 0,
+        phaseEndsAt: 0,
+        swell: [],
+        linger: [],
+      },
+    },
     };
   },
 };
@@ -148,6 +207,15 @@ export function readInt(raw: unknown, fallback: number, min = 0, max = Number.MA
 
 export function readUint32(raw: unknown, fallback: number): number {
   return readInt(raw, fallback, 0, 0xffffffff) >>> 0;
+}
+
+/** A fixed-length array of non-negative integers; missing or bad entries become 0. */
+export function readLevels(raw: unknown, length: number, max = Number.MAX_SAFE_INTEGER): number[] {
+  const out = new Array<number>(length).fill(0);
+  if (Array.isArray(raw)) {
+    for (let i = 0; i < length; i++) out[i] = readInt(raw[i], 0, 0, max);
+  }
+  return out;
 }
 
 /** Build a valid GameState from an (already migrated) raw save body. */
@@ -190,6 +258,41 @@ export function hydrateState(game: Record<string, unknown>): GameState {
       for (const id of DAWN_UPGRADE_ORDER) {
         const max = DAWN.upgrades[id].maxLevel ?? Number.MAX_SAFE_INTEGER;
         dawn.upgrades[id] = readInt(raw.upgrades[id], 0, 0, max);
+      }
+    }
+  }
+
+  if (isRecord(game.coast)) {
+    const raw = game.coast;
+    const coast = state.coast;
+    coast.revealed = raw.revealed === true;
+    coast.stone = parseDecimal(raw.stone);
+    coast.stoneTotal = parseDecimal(raw.stoneTotal);
+    coast.pending = parseDecimal(raw.pending);
+    coast.surveys = readInt(raw.surveys, 0);
+    coast.levels = readLevels(raw.levels, coastTileCount());
+    coast.record = readNumber(raw.record, 0, 0, 1e15);
+  }
+
+  if (isRecord(game.tides)) {
+    const raw = game.tides;
+    const tides = state.tides;
+    tides.revealed = raw.revealed === true;
+    tides.tide = parseDecimal(raw.tide);
+    tides.tideTotal = parseDecimal(raw.tideTotal);
+    tides.pending = parseDecimal(raw.pending);
+    tides.turns = readInt(raw.turns, 0);
+    tides.phase = readInt(raw.phase, 0, 0, PHASE_COUNT - 1);
+    tides.swell = readLevels(raw.swell, PHASE_COUNT);
+    tides.linger = readLevels(raw.linger, PHASE_COUNT, TIDES.linger.maxLevel);
+    tides.phaseEndsAt = readNumber(raw.phaseEndsAt, 0, 0);
+    if (!tides.revealed) {
+      tides.phaseEndsAt = 0;
+    } else {
+      // A phase can never end in the past or further ahead than its longest possible length.
+      const longest = TIDES.phaseSeconds * (1 + TIDES.linger.step * TIDES.linger.maxLevel);
+      if (tides.phaseEndsAt < state.time || tides.phaseEndsAt > state.time + longest) {
+        tides.phaseEndsAt = state.time + TIDES.phaseSeconds;
       }
     }
   }

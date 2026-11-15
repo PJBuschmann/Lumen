@@ -23,6 +23,6 @@ export const ENGINE = {
   },
   /** Hard stop for one advance() call; purely a guard against bugs. */
   maxStepsPerAdvance: 50_000_000,
-  /** Most transient UI events kept from a single tick. */
+  /** Most cosmetic UI events (ships, automatic purchases) kept from a single tick. */
   maxEventsPerTick: 12,
 } as const;

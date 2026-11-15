@@ -3,7 +3,9 @@ import { ENGINE } from '../content/engine';
 import { D, ZERO } from './decimal';
 import { deriveSeed } from './rng';
 import { SCHEMA_VERSION } from './types';
-import type { DawnState, GameState, NightState, StatsState } from './types';
+import { COAST } from '../content/coast';
+import { PHASE_COUNT } from '../content/tides';
+import type { CoastState, DawnState, GameState, NightState, StatsState, TidesState } from './types';
 
 export function createNightState(): NightState {
   return {
@@ -25,7 +27,40 @@ export function createDawnState(): DawnState {
     glimmer: ZERO,
     glimmerTotal: ZERO,
     dawns: 0,
-    upgrades: { apprentice: 0, radiance: 0, seaLanes: 0, embers: 0 },
+    upgrades: { radiance: 0, seaLanes: 0, embers: 0, vigil: 0 },
+  };
+}
+
+/** Number of buildable tiles on the coast map. */
+export function coastTileCount(): number {
+  let count = 0;
+  for (const row of COAST.map) for (const ch of row) if (ch !== '~') count += 1;
+  return count;
+}
+
+export function createCoastState(): CoastState {
+  return {
+    revealed: false,
+    stone: ZERO,
+    stoneTotal: ZERO,
+    pending: ZERO,
+    surveys: 0,
+    levels: new Array<number>(coastTileCount()).fill(0),
+    record: 0,
+  };
+}
+
+export function createTidesState(): TidesState {
+  return {
+    revealed: false,
+    tide: ZERO,
+    tideTotal: ZERO,
+    pending: ZERO,
+    turns: 0,
+    phase: 0,
+    phaseEndsAt: 0,
+    swell: new Array<number>(PHASE_COUNT).fill(0),
+    linger: new Array<number>(PHASE_COUNT).fill(0),
   };
 }
 
@@ -57,6 +92,8 @@ export function createInitialState(seed: number = 1): GameState {
     time: 0,
     night: createNightState(),
     dawn: createDawnState(),
+    coast: createCoastState(),
+    tides: createTidesState(),
     stats: createStatsState(),
     events: [],
     derived: null,
@@ -75,6 +112,8 @@ export function cloneState(state: GameState): GameState {
     time: state.time,
     night: { ...state.night, upgrades: { ...state.night.upgrades } },
     dawn: { ...state.dawn, upgrades: { ...state.dawn.upgrades } },
+    coast: { ...state.coast, levels: state.coast.levels.slice() },
+    tides: { ...state.tides, swell: state.tides.swell.slice(), linger: state.tides.linger.slice() },
     stats: { ...state.stats, milestones: { ...state.stats.milestones } },
     events: [],
     derived: state.derived,

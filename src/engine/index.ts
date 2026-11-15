@@ -6,6 +6,8 @@ export * from './state';
 export * from './events';
 export * from './night';
 export * from './dawn';
+export * from './coast';
+export * from './tides';
 export * from './automation';
 export * from './derive';
 export * from './tick';

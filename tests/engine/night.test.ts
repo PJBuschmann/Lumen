@@ -190,7 +190,9 @@ describe('ticking', () => {
     const ships = small.events.filter((e) => e.type === 'ship');
     expect(ships.length).toBeGreaterThanOrEqual(1);
     const big = tick(state, 600);
-    expect(big.events.length).toBeLessThanOrEqual(ENGINE.maxEventsPerTick);
+    expect(big.events.filter((e) => e.type === 'ship').length).toBeLessThanOrEqual(ENGINE.maxEventsPerTick);
+    // News is never crowded out by ships.
+    expect(big.events.some((e) => e.type === 'milestone' && e.id === 'firstShip')).toBe(true);
   });
 
   it('events are transient: cloning drops them', () => {

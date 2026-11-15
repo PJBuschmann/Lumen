@@ -3,6 +3,7 @@ import { describe, expect, it } from 'vitest';
 import {
   MIGRATIONS,
   SCHEMA_VERSION,
+  apprenticeSkills,
   loadFromJson,
   migrateSave,
   saveToJson,
@@ -38,7 +39,7 @@ describe('save migrations', () => {
     // New in schema 2: Dawn starts untouched.
     expect(state.dawn.dawns).toBe(0);
     expect(state.dawn.glimmer.toNumber()).toBe(0);
-    expect(state.dawn.upgrades.apprentice).toBe(0);
+    expect(state.dawn.upgrades).toEqual({ radiance: 0, seaLanes: 0, embers: 0, vigil: 0 });
     expect(state.stats.autoPurchases).toBe(0);
   });
 
@@ -50,6 +51,34 @@ describe('save migrations', () => {
     const again = loadFromJson(saveToJson(next, 5));
     expect(again.ok).toBe(true);
     if (again.ok) expect(again.migratedFrom).toBe(SCHEMA_VERSION);
+  });
+
+  it('migrates a real schema-2 save (Night + Dawn) and keeps all progress', () => {
+    const result = loadFromJson(fixture('save-v2.json'));
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    expect(result.migratedFrom).toBe(2);
+    const state = result.state;
+    expect(state.schema).toBe(SCHEMA_VERSION);
+    expect(state.seed).toBe(777);
+    expect(state.night.upgrades).toEqual({ wick: 68, oil: 5, lens: 1, rotation: 6 });
+    expect(state.dawn.dawns).toBe(22);
+    expect(state.dawn.glimmerTotal.toNumber()).toBeCloseTo(121.1364, 3);
+    // The apprentice no longer needs lessons: the one bought lesson (3 Glimmer) is handed back.
+    expect(state.dawn.upgrades).toEqual({ radiance: 1, seaLanes: 3, embers: 3, vigil: 0 });
+    expect(state.dawn.glimmer.toNumber()).toBeCloseTo(19.1364 + 3, 3);
+    expect(apprenticeSkills(state).length).toBe(4);
+    expect(state.stats.autoPurchases).toBe(2072);
+    expect(state.stats.milestones.firstDawn).toBe(1480);
+    // New in schema 3: the coastline and the tides are still out of sight.
+    expect(state.coast.revealed).toBe(false);
+    expect(state.coast.levels.every((level) => level === 0)).toBe(true);
+    expect(state.coast.levels.length).toBeGreaterThan(0);
+    expect(state.tides.revealed).toBe(false);
+    expect(state.tides.swell.length).toBe(8);
+    // And the game carries on.
+    const next = tick(result.state, 300);
+    expect(next.stats.totalLight.gt(state.stats.totalLight)).toBe(true);
   });
 
   it('migrateSave steps one version at a time and fails loudly on a gap', () => {

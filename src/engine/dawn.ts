@@ -58,11 +58,24 @@ export function startingLight(state: GameState): Decimal {
   return D(effect.base).mul(powLevel(effect.growth, level - 1));
 }
 
-/** Night upgrades the apprentice currently tends, most expensive first. */
-export function apprenticeSkills(state: GameState): NightUpgradeId[] {
-  const effect = dawnUpgradeDef('apprentice').effect;
-  if (effect.kind !== 'apprentice') return [];
-  return effect.teaches.slice(0, state.dawn.upgrades.apprentice);
+/** Night upgrades the apprentice keeper tends. The apprentice arrives with the first Dawn. */
+export function apprenticeSkills(state: GameState): readonly NightUpgradeId[] {
+  return state.dawn.dawns > 0 ? DAWN.apprenticeTends : NO_SKILLS;
+}
+
+const NO_SKILLS: readonly NightUpgradeId[] = [];
+
+/** Exponent of the long-night bonus, including Long vigil levels. */
+export function longNightPower(vigilLevel: number): number {
+  const effect = dawnUpgradeDef('vigil').effect;
+  return DAWN.longNight.power + (effect.kind === 'vigil' ? effect.perLevel * vigilLevel : 0);
+}
+
+/** A long night makes a brighter dawn: the multiplier for a night of `runTime` seconds. */
+export function longNightBonus(runTime: number, vigilLevel: number): number {
+  const { refHours, capHours } = DAWN.longNight;
+  const hours = Math.min(Math.max(0, runTime), capHours * 3600) / 3600;
+  return Math.pow(1 + hours / refHours, longNightPower(vigilLevel));
 }
 
 /** Glimmer a Dawn would gather right now (zero below the threshold). */
@@ -72,7 +85,7 @@ export function dawnGain(state: GameState): Decimal {
   return runLight
     .div(DAWN.threshold)
     .pow(DAWN.glimmerExponent)
-    .mul(DAWN.glimmerCoef)
+    .mul(DAWN.glimmerCoef * longNightBonus(state.night.runTime, state.dawn.upgrades.vigil))
     .mul(getDerived(state).glimmerGainMult);
 }
 
@@ -89,9 +102,6 @@ export function performDawn(state: GameState, auto: boolean): boolean {
   dawn.glimmer = dawn.glimmer.add(gain);
   dawn.glimmerTotal = dawn.glimmerTotal.add(gain);
   dawn.dawns += 1;
-  if (dawn.upgrades.apprentice < DAWN.freeApprenticeLevels) {
-    dawn.upgrades.apprentice = DAWN.freeApprenticeLevels;
-  }
   resetNight(state, startingLight(state));
   reachMilestone(state, 'firstDawn');
   pushEvent(state, { type: 'dawn', glimmer: gain, auto });

@@ -6,10 +6,10 @@ import type { NightUpgradeId } from '../content/night';
 import type { DawnUpgradeId } from '../content/dawn';
 
 /** Current save schema version. Bump when the persisted shape changes; add a migration. */
-export const SCHEMA_VERSION = 2;
+export const SCHEMA_VERSION = 3;
 
 /** Milestones in canonical order (also the order they are saved in). */
-export const MILESTONE_IDS = ['firstShip', 'firstUpgrade', 'firstDawn'] as const;
+export const MILESTONE_IDS = ['firstShip', 'firstUpgrade', 'firstDawn', 'firstCoast', 'firstTides'] as const;
 export type MilestoneId = (typeof MILESTONE_IDS)[number];
 
 export interface RngState {
@@ -51,6 +51,42 @@ export interface DawnState {
   upgrades: Record<DawnUpgradeId, number>;
 }
 
+export interface CoastState {
+  /** The coastline has come into view (Stone starts being surveyed). */
+  revealed: boolean;
+  /** Spendable Stone. */
+  stone: Decimal;
+  stoneTotal: Decimal;
+  /** Stone surveyed but not yet brought home by a Survey. */
+  pending: Decimal;
+  /** Surveys made. After the first, Dawn is tended automatically. */
+  surveys: number;
+  /** Lighthouse level per buildable tile (0 = empty), in coastTiles() order. */
+  levels: number[];
+  /** Highest log10(1 + Glimmer gathered in a run) ever held. Drives Stone income. */
+  record: number;
+}
+
+export interface TidesState {
+  /** The tides can be read (the moon starts to matter, Tide starts being drawn). */
+  revealed: boolean;
+  /** Spendable Tide. */
+  tide: Decimal;
+  tideTotal: Decimal;
+  /** Tide drawn but not yet claimed by turning the tide. */
+  pending: Decimal;
+  /** Times the tide was turned. After the first, the coastline builds itself. */
+  turns: number;
+  /** Index of the moon phase in the sky. */
+  phase: number;
+  /** Game time at which the current phase ends. */
+  phaseEndsAt: number;
+  /** Swell level per phase. */
+  swell: number[];
+  /** Linger level per phase. */
+  linger: number[];
+}
+
 export interface StatsState {
   /** Light earned across the whole save. */
   totalLight: Decimal;
@@ -79,6 +115,14 @@ export interface Derived {
   lightPerSecond: Decimal;
   /** Multiplier applied to Glimmer gathered at Dawn. */
   glimmerGainMult: Decimal;
+  /** Orders of magnitude of Light from the coastline's lighthouses. */
+  coastPower: number;
+  /** Orders of magnitude of Light from the tides right now (includes the phase in the sky). */
+  tidePower: number;
+  /** Stone surveyed per second. */
+  stonePerSecond: Decimal;
+  /** Tide drawn per second right now. */
+  tidePerSecond: Decimal;
   /** Multiplier breakdown for the UI. */
   parts: {
     wick: Decimal;
@@ -89,14 +133,22 @@ export interface Derived {
     radiance: Decimal;
     /** Ship traffic multiplier from all sources. */
     traffic: number;
+    /** Light-per-ship multiplier of the moon phase in the sky. */
+    glow: number;
   };
 }
+
+export type LayerId = 'night' | 'dawn' | 'coast' | 'tides' | 'stars' | 'aurora';
 
 /** Transient, UI-facing notifications produced by the latest tick/action. Never saved. */
 export type GameEvent =
   | { type: 'ship'; guided: boolean; index: number; value: Decimal }
-  | { type: 'purchase'; layer: 'night' | 'dawn'; id: string; count: number; auto: boolean }
+  | { type: 'purchase'; layer: LayerId; id: string; count: number; auto: boolean }
   | { type: 'dawn'; glimmer: Decimal; auto: boolean }
+  | { type: 'reveal'; layer: LayerId }
+  | { type: 'survey'; stone: Decimal }
+  | { type: 'turn'; tide: Decimal }
+  | { type: 'phase'; phase: number }
   | { type: 'milestone'; id: MilestoneId };
 
 export interface GameState {
@@ -107,6 +159,8 @@ export interface GameState {
   time: number;
   night: NightState;
   dawn: DawnState;
+  coast: CoastState;
+  tides: TidesState;
   stats: StatsState;
   /** Transient: events from the most recent tick/action. */
   events: GameEvent[];
@@ -118,7 +172,24 @@ export type Action =
   | { type: 'buyNightUpgrade'; id: NightUpgradeId; count?: number | 'max' }
   /** Greet the dawn: reset the night, gather Glimmer. */
   | { type: 'dawn' }
-  | { type: 'buyDawnUpgrade'; id: DawnUpgradeId; count?: number | 'max' };
+  | { type: 'buyDawnUpgrade'; id: DawnUpgradeId; count?: number | 'max' }
+  /** Survey the coast: bring surveyed Stone home; Night and Dawn begin again. */
+  | { type: 'survey' }
+  | { type: 'buildLighthouse'; tile: number }
+  | { type: 'raiseLighthouse'; tile: number; count?: number }
+  /** Turn the tide: claim drawn Tide; Night and Dawn begin again. */
+  | { type: 'turnTide' }
+  | { type: 'swellPhase'; phase: number; count?: number }
+  | { type: 'lingerPhase'; phase: number };
+
+/** A purchasable structure step, with its benefit in orders of magnitude of Light. */
+export interface StructureOption {
+  action: Action;
+  cost: Decimal;
+  /** Benefit in OoM of Light (or an equivalent estimate for income upgrades). */
+  gain: number;
+  label: string;
+}
 
 export interface OfflineSummary {
   /** Seconds the player was away. */
@@ -130,6 +201,8 @@ export interface OfflineSummary {
   shipsGuided: number;
   shipsMissed: number;
   glimmerEarned: Decimal;
+  stoneEarned: Decimal;
+  tideEarned: Decimal;
   /** Upgrade levels bought by automation while away. */
   autoPurchases: number;
 }
