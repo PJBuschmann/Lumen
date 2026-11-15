@@ -7,22 +7,14 @@
  * of ships (and the Light they earn) depends only on elapsed time, never on frame size.
  */
 import { ENGINE } from '../content/engine';
+import { runAutomation } from './automation';
 import { getDerived } from './derive';
+import { pushEvent, reachMilestone } from './events';
 import { beatInterval } from './night';
 import { cloneState } from './state';
-import type { Derived, GameEvent, GameState, MilestoneId, OfflineSummary } from './types';
+import type { Derived, GameState, OfflineSummary } from './types';
 
 const EPS = 1e-9;
-
-export function pushEvent(state: GameState, event: GameEvent): void {
-  if (state.events.length < ENGINE.maxEventsPerTick) state.events.push(event);
-}
-
-export function reachMilestone(state: GameState, id: MilestoneId): void {
-  if (state.stats.milestones[id] !== undefined) return;
-  state.stats.milestones[id] = state.time;
-  pushEvent(state, { type: 'milestone', id });
-}
 
 /** Seconds until the next scheduled event. */
 function timeToNextEvent(state: GameState): number {
@@ -80,6 +72,7 @@ function heartbeat(state: GameState): void {
   night.runTime = night.nextBeat;
   night.lastBeat = night.nextBeat;
   night.nextBeat = night.lastBeat + beatInterval(night.lastBeat);
+  runAutomation(state);
   state.derived = null;
 }
 
@@ -128,6 +121,8 @@ export function applyOffline(
   const lightBefore = next.stats.totalLight;
   const guidedBefore = next.stats.shipsGuided;
   const missedBefore = next.stats.shipsMissed;
+  const glimmerBefore = next.dawn.glimmerTotal;
+  const autoBefore = next.stats.autoPurchases;
   advanceInPlace(next, applied, false);
   next.stats.offlineTime += applied;
   return {
@@ -139,6 +134,9 @@ export function applyOffline(
       lightEarned: next.stats.totalLight.sub(lightBefore),
       shipsGuided: next.stats.shipsGuided - guidedBefore,
       shipsMissed: next.stats.shipsMissed - missedBefore,
+      // A higher reset can lower the running total; never report a negative gain.
+      glimmerEarned: next.dawn.glimmerTotal.sub(glimmerBefore).max(0),
+      autoPurchases: next.stats.autoPurchases - autoBefore,
     },
   };
 }

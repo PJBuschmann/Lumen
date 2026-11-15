@@ -34,9 +34,9 @@ export const NIGHT_UPGRADE_ORDER: readonly NightUpgradeId[] = ['wick', 'oil', 'l
 
 export const NIGHT = {
   /** Light in the keeper's pocket on a brand new night. */
-  startingLight: 5,
+  startingLight: 10,
   /** Ships passing the headland per second before any traffic bonus. */
-  baseShipsPerSecond: 0.5,
+  baseShipsPerSecond: 0.38,
   /** Light earned by one safely guided ship before multipliers. */
   baseLightPerShip: 1,
   /** Chance a passing ship is caught by the beam before rotation upgrades. */

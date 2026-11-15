@@ -86,7 +86,7 @@ describe('buying night upgrades', () => {
     const next = applyAction(state, { type: 'buyNightUpgrade', id: 'wick' });
     expect(next).not.toBe(state);
     expect(next.night.upgrades.wick).toBe(1);
-    expect(next.night.light.toNumber()).toBeCloseTo(0, 9);
+    expect(next.night.light.toNumber()).toBeCloseTo(NIGHT.startingLight - NIGHT.upgrades.wick.baseCost, 9);
     expect(next.stats.purchases).toBe(1);
     expect(next.stats.milestones.firstUpgrade).toBe(0);
     expect(next.events.some((e) => e.type === 'purchase')).toBe(true);
@@ -186,7 +186,7 @@ describe('ticking', () => {
 
   it('emits ship events for the UI but caps them', () => {
     const state = createInitialState(3);
-    const small = tick(state, 2.5);
+    const small = tick(state, 1.5 / NIGHT.baseShipsPerSecond);
     const ships = small.events.filter((e) => e.type === 'ship');
     expect(ships.length).toBeGreaterThanOrEqual(1);
     const big = tick(state, 600);
@@ -194,7 +194,7 @@ describe('ticking', () => {
   });
 
   it('events are transient: cloning drops them', () => {
-    const state = tick(createInitialState(3), 5);
+    const state = tick(createInitialState(3), 2 / NIGHT.baseShipsPerSecond);
     expect(state.events.length).toBeGreaterThan(0);
     expect(cloneState(state).events).toEqual([]);
   });

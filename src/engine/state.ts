@@ -3,7 +3,7 @@ import { ENGINE } from '../content/engine';
 import { D, ZERO } from './decimal';
 import { deriveSeed } from './rng';
 import { SCHEMA_VERSION } from './types';
-import type { GameState, NightState, StatsState } from './types';
+import type { DawnState, GameState, NightState, StatsState } from './types';
 
 export function createNightState(): NightState {
   return {
@@ -20,6 +20,15 @@ export function createNightState(): NightState {
   };
 }
 
+export function createDawnState(): DawnState {
+  return {
+    glimmer: ZERO,
+    glimmerTotal: ZERO,
+    dawns: 0,
+    upgrades: { apprentice: 0, radiance: 0, seaLanes: 0, embers: 0 },
+  };
+}
+
 export function createStatsState(): StatsState {
   return {
     totalLight: ZERO,
@@ -27,6 +36,7 @@ export function createStatsState(): StatsState {
     shipsGuided: 0,
     shipsMissed: 0,
     purchases: 0,
+    autoPurchases: 0,
     playTime: 0,
     offlineTime: 0,
     milestones: {},
@@ -46,6 +56,7 @@ export function createInitialState(seed: number = 1): GameState {
     },
     time: 0,
     night: createNightState(),
+    dawn: createDawnState(),
     stats: createStatsState(),
     events: [],
     derived: null,
@@ -63,6 +74,7 @@ export function cloneState(state: GameState): GameState {
     rng: { ...state.rng },
     time: state.time,
     night: { ...state.night, upgrades: { ...state.night.upgrades } },
+    dawn: { ...state.dawn, upgrades: { ...state.dawn.upgrades } },
     stats: { ...state.stats, milestones: { ...state.stats.milestones } },
     events: [],
     derived: state.derived,

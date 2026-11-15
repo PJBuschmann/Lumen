@@ -3,12 +3,13 @@
  */
 import type { Decimal } from './decimal';
 import type { NightUpgradeId } from '../content/night';
+import type { DawnUpgradeId } from '../content/dawn';
 
 /** Current save schema version. Bump when the persisted shape changes; add a migration. */
-export const SCHEMA_VERSION = 1;
+export const SCHEMA_VERSION = 2;
 
 /** Milestones in canonical order (also the order they are saved in). */
-export const MILESTONE_IDS = ['firstShip', 'firstUpgrade'] as const;
+export const MILESTONE_IDS = ['firstShip', 'firstUpgrade', 'firstDawn'] as const;
 export type MilestoneId = (typeof MILESTONE_IDS)[number];
 
 export interface RngState {
@@ -40,6 +41,16 @@ export interface NightState {
   shipsMissed: number;
 }
 
+export interface DawnState {
+  /** Spendable Glimmer. */
+  glimmer: Decimal;
+  /** Glimmer gathered since the last higher reset; drives the permanent Light multiplier. */
+  glimmerTotal: Decimal;
+  /** Dawns greeted across the whole save. */
+  dawns: number;
+  upgrades: Record<DawnUpgradeId, number>;
+}
+
 export interface StatsState {
   /** Light earned across the whole save. */
   totalLight: Decimal;
@@ -49,6 +60,8 @@ export interface StatsState {
   shipsMissed: number;
   /** Purchases made by the player (not by automation). */
   purchases: number;
+  /** Upgrade levels bought by automation. */
+  autoPurchases: number;
   /** Seconds simulated in total (online and offline). */
   playTime: number;
   /** Seconds of that which were offline catch-up. */
@@ -64,18 +77,26 @@ export interface Derived {
   lightPerShip: Decimal;
   /** Expected Light per second: shipsPerSecond * guideChance * lightPerShip. */
   lightPerSecond: Decimal;
+  /** Multiplier applied to Glimmer gathered at Dawn. */
+  glimmerGainMult: Decimal;
   /** Multiplier breakdown for the UI. */
   parts: {
     wick: Decimal;
     oil: Decimal;
     lens: Decimal;
+    /** (1 + total Glimmer) ^ beta. */
+    glimmer: Decimal;
+    radiance: Decimal;
+    /** Ship traffic multiplier from all sources. */
+    traffic: number;
   };
 }
 
 /** Transient, UI-facing notifications produced by the latest tick/action. Never saved. */
 export type GameEvent =
   | { type: 'ship'; guided: boolean; index: number; value: Decimal }
-  | { type: 'purchase'; layer: 'night'; id: string; count: number; auto: boolean }
+  | { type: 'purchase'; layer: 'night' | 'dawn'; id: string; count: number; auto: boolean }
+  | { type: 'dawn'; glimmer: Decimal; auto: boolean }
   | { type: 'milestone'; id: MilestoneId };
 
 export interface GameState {
@@ -85,6 +106,7 @@ export interface GameState {
   /** Total simulated seconds. */
   time: number;
   night: NightState;
+  dawn: DawnState;
   stats: StatsState;
   /** Transient: events from the most recent tick/action. */
   events: GameEvent[];
@@ -92,7 +114,11 @@ export interface GameState {
   derived: Derived | null;
 }
 
-export type Action = { type: 'buyNightUpgrade'; id: NightUpgradeId; count?: number | 'max' };
+export type Action =
+  | { type: 'buyNightUpgrade'; id: NightUpgradeId; count?: number | 'max' }
+  /** Greet the dawn: reset the night, gather Glimmer. */
+  | { type: 'dawn' }
+  | { type: 'buyDawnUpgrade'; id: DawnUpgradeId; count?: number | 'max' };
 
 export interface OfflineSummary {
   /** Seconds the player was away. */
@@ -103,4 +129,7 @@ export interface OfflineSummary {
   lightEarned: Decimal;
   shipsGuided: number;
   shipsMissed: number;
+  glimmerEarned: Decimal;
+  /** Upgrade levels bought by automation while away. */
+  autoPurchases: number;
 }

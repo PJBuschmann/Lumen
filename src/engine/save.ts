@@ -5,6 +5,7 @@
  * Loading never trusts the input: every field is validated and falls back to a default,
  * so a damaged or hand-edited save can at worst lose the damaged field.
  */
+import { DAWN, DAWN_UPGRADE_ORDER } from '../content/dawn';
 import { NIGHT_UPGRADE_ORDER } from '../content/night';
 import { parseDecimal } from './decimal';
 import type { Decimal } from './decimal';
@@ -65,12 +66,19 @@ export function serializeState(state: GameState, savedAt: number): SaveFile {
         shipsGuided: n.shipsGuided,
         shipsMissed: n.shipsMissed,
       },
+      dawn: {
+        glimmer: dec(state.dawn.glimmer),
+        glimmerTotal: dec(state.dawn.glimmerTotal),
+        dawns: state.dawn.dawns,
+        upgrades: { ...state.dawn.upgrades },
+      },
       stats: {
         totalLight: dec(st.totalLight),
         bestRunLight: dec(st.bestRunLight),
         shipsGuided: st.shipsGuided,
         shipsMissed: st.shipsMissed,
         purchases: st.purchases,
+        autoPurchases: st.autoPurchases,
         playTime: st.playTime,
         offlineTime: st.offlineTime,
         milestones: serializeMilestones(st.milestones),
@@ -89,7 +97,25 @@ type RawSave = { schema: number; savedAt: number; game: Record<string, unknown> 
  * MIGRATIONS[n] upgrades a save from schema n to schema n + 1.
  * Never edit an old migration; append a new one.
  */
-export const MIGRATIONS: Record<number, (save: RawSave) => RawSave> = {};
+export const MIGRATIONS: Record<number, (save: RawSave) => RawSave> = {
+  /** 1 -> 2: the Dawn layer arrives. Existing keepers simply have not seen a dawn yet. */
+  1: (save) => {
+    const stats = isRecord(save.game.stats) ? save.game.stats : {};
+    return {
+      ...save,
+      game: {
+        ...save.game,
+        dawn: {
+          glimmer: '0',
+          glimmerTotal: '0',
+          dawns: 0,
+          upgrades: { apprentice: 0, radiance: 0, seaLanes: 0, embers: 0 },
+        },
+        stats: { ...stats, autoPurchases: 0 },
+      },
+    };
+  },
+};
 
 export function migrateSave(save: RawSave): RawSave {
   let current = save;
@@ -154,6 +180,20 @@ export function hydrateState(game: Record<string, unknown>): GameState {
     n.shipsMissed = readInt(raw.shipsMissed, 0);
   }
 
+  if (isRecord(game.dawn)) {
+    const raw = game.dawn;
+    const dawn = state.dawn;
+    dawn.glimmer = parseDecimal(raw.glimmer);
+    dawn.glimmerTotal = parseDecimal(raw.glimmerTotal);
+    dawn.dawns = readInt(raw.dawns, 0);
+    if (isRecord(raw.upgrades)) {
+      for (const id of DAWN_UPGRADE_ORDER) {
+        const max = DAWN.upgrades[id].maxLevel ?? Number.MAX_SAFE_INTEGER;
+        dawn.upgrades[id] = readInt(raw.upgrades[id], 0, 0, max);
+      }
+    }
+  }
+
   if (isRecord(game.stats)) {
     const raw = game.stats;
     const st = state.stats;
@@ -162,6 +202,7 @@ export function hydrateState(game: Record<string, unknown>): GameState {
     st.shipsGuided = readInt(raw.shipsGuided, 0);
     st.shipsMissed = readInt(raw.shipsMissed, 0);
     st.purchases = readInt(raw.purchases, 0);
+    st.autoPurchases = readInt(raw.autoPurchases, 0);
     st.playTime = readNumber(raw.playTime, 0, 0);
     st.offlineTime = readNumber(raw.offlineTime, 0, 0);
     if (isRecord(raw.milestones)) {

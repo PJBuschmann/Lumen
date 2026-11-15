@@ -5,6 +5,7 @@ import { NIGHT } from '../content/night';
 import type { NightUpgradeDef, NightUpgradeId } from '../content/night';
 import { ENGINE } from '../content/engine';
 import { D, Decimal, ONE, geometricAfford, geometricCost, powLevel } from './decimal';
+import { createNightState } from './state';
 import type { GameState } from './types';
 
 export function nightUpgradeDef(id: NightUpgradeId): NightUpgradeDef {
@@ -84,4 +85,17 @@ export function buyNightUpgrade(
   night.upgrades[id] = level + wanted;
   state.derived = null;
   return wanted;
+}
+
+/**
+ * Begin a new night. Light and Night upgrades reset; the fractional ship accumulators carry
+ * over so a ship that was about to arrive still does.
+ */
+export function resetNight(state: GameState, startLight: Decimal): void {
+  const fresh = createNightState();
+  fresh.light = startLight;
+  fresh.shipAcc = state.night.shipAcc;
+  fresh.guideAcc = state.night.guideAcc;
+  state.night = fresh;
+  state.derived = null;
 }
