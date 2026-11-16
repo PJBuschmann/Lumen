@@ -6,6 +6,7 @@ import { COAST } from '../content/coast';
 import type { TerrainId } from '../content/coast';
 import { D, Decimal, ZERO } from './decimal';
 import { resetDawn } from './dawn';
+import { getStructure, invalidateStructure } from './derive';
 import { pushEvent, reachMilestone } from './events';
 import type { GameState, StructureOption } from './types';
 
@@ -76,15 +77,17 @@ function ownPower(tile: CoastTile, level: number): number {
 /**
  * Orders of magnitude of Light from the whole coastline: each lighthouse's own power plus,
  * for every pair of neighbours, a synergy for each level they both have.
+ * `synergyMult` scales the neighbour bonus (star keystones raise it, a challenge removes it).
  */
-export function coastPower(levels: readonly number[]): number {
+export function coastPower(levels: readonly number[], synergyMult: number = 1): number {
   let power = 0;
+  const synergy = COAST.lighthouse.synergyPerPair * synergyMult;
   for (const tile of TILES) {
     const level = levels[tile.index];
     if (level <= 0) continue;
     power += ownPower(tile, level);
     for (const n of tile.neighbors) {
-      if (n > tile.index) power += COAST.lighthouse.synergyPerPair * Math.min(level, levels[n]);
+      if (n > tile.index) power += synergy * Math.min(level, levels[n]);
     }
   }
   return power;
@@ -109,27 +112,34 @@ export function baseSurveyRate(record: number): number {
 }
 
 /** OoM of Light gained by building on (level 0) or raising (level > 0) a tile. */
-export function lighthouseGain(levels: readonly number[], tile: CoastTile): number {
+export function lighthouseGain(levels: readonly number[], tile: CoastTile, synergyMult: number = 1): number {
   const level = levels[tile.index];
   let gain = COAST.lighthouse.powerPerLevel * COAST.terrain[tile.terrain].power;
   for (const n of tile.neighbors) {
-    if (levels[n] > level) gain += COAST.lighthouse.synergyPerPair;
+    if (levels[n] > level) gain += COAST.lighthouse.synergyPerPair * synergyMult;
   }
   return gain;
 }
 
-/** Every lighthouse purchase available, with cost and benefit. */
+/** Every lighthouse purchase available, with cost and benefit. Do not mutate the result. */
 export function coastOptions(state: GameState): StructureOption[] {
   if (!state.coast.revealed) return [];
+  const structure = getStructure(state);
+  if (structure.options.coast === null) structure.options.coast = buildCoastOptions(state);
+  return structure.options.coast;
+}
+
+function buildCoastOptions(state: GameState): StructureOption[] {
   const levels = state.coast.levels;
   const built = lighthousesBuilt(levels);
+  const synergyMult = getStructure(state).stars.synergyMult;
   const options: StructureOption[] = [];
   for (const tile of TILES) {
     const level = levels[tile.index];
     options.push({
       action: level > 0 ? { type: 'raiseLighthouse', tile: tile.index, count: 1 } : { type: 'buildLighthouse', tile: tile.index },
       cost: level > 0 ? lighthouseLevelCost(level, tile.terrain) : lighthouseBuildCost(built, tile.terrain),
-      gain: lighthouseGain(levels, tile),
+      gain: lighthouseGain(levels, tile, synergyMult),
       label: `coast.${level > 0 ? 'raise' : 'build'}.${tile.index}`,
     });
   }
@@ -174,7 +184,7 @@ export function buildLighthouse(state: GameState, tileIndex: number): boolean {
   if (cost.gt(coast.stone)) return false;
   coast.stone = coast.stone.sub(cost);
   coast.levels[tileIndex] = 1;
-  state.derived = null;
+  invalidateStructure(state);
   return true;
 }
 
@@ -192,7 +202,7 @@ export function raiseLighthouse(state: GameState, tileIndex: number, count: numb
     coast.levels[tileIndex] += 1;
     gained += 1;
   }
-  if (gained > 0) state.derived = null;
+  if (gained > 0) invalidateStructure(state);
   return gained;
 }
 
@@ -225,11 +235,29 @@ export function collectSurvey(state: GameState): void {
   coast.pending = ZERO;
 }
 
+/** Cost of the cheapest lighthouse purchase on offer. */
+export function cheapestCoastCost(state: GameState): Decimal {
+  const structure = getStructure(state);
+  if (structure.cheapest.coast === null) {
+    const levels = state.coast.levels;
+    const built = lighthousesBuilt(levels);
+    let min: Decimal | null = null;
+    for (const tile of TILES) {
+      const level = levels[tile.index];
+      const cost = level > 0 ? lighthouseLevelCost(level, tile.terrain) : lighthouseBuildCost(built, tile.terrain);
+      if (min === null || cost.lt(min)) min = cost;
+    }
+    structure.cheapest.coast = min ?? ZERO;
+  }
+  return structure.cheapest.coast;
+}
+
 /** The automatic builder: spends Stone on the best-value lighthouse work it can afford. */
 export function runAutoBuilder(state: GameState): number {
   if (!coastAutomated(state)) return 0;
   let bought = 0;
   while (bought < COAST.autoBuildPerBeat) {
+    if (state.coast.stone.lt(cheapestCoastCost(state))) break;
     const pick = bestAffordableOption(coastOptions(state), state.coast.stone);
     if (!pick) break;
     const action = pick.action;

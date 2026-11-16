@@ -9,10 +9,11 @@
 import { ENGINE } from '../content/engine';
 import { runHeartbeat } from './automation';
 import { coastAutomated } from './coast';
+import { starsAutomated } from './stars';
 import { advancePhase, tidesAutomated } from './tides';
 import { getDerived } from './derive';
 import { pushEvent, reachMilestone } from './events';
-import { beatInterval } from './night';
+import { anchorShips, beatInterval } from './night';
 import { cloneState } from './state';
 import type { Derived, GameState, OfflineSummary } from './types';
 
@@ -28,6 +29,10 @@ function timeToNextEvent(state: GameState): number {
 /** Integrate one constant-rate segment. */
 function integrate(state: GameState, d: Derived, step: number, emit: boolean): void {
   const night = state.night;
+  // Traffic or guide chance changed (always at an event): start a new ship segment here.
+  if (d.shipsPerSecond !== night.segRate || d.guideChance !== night.segGuide) {
+    anchorShips(night, d.shipsPerSecond, d.guideChance);
+  }
   state.time += step;
   night.runTime += step;
   state.stats.playTime += step;
@@ -53,14 +58,25 @@ function integrate(state: GameState, d: Derived, step: number, emit: boolean): v
     }
   }
 
-  const acc = night.shipAcc + d.shipsPerSecond * step;
-  const arrived = Math.floor(acc);
-  night.shipAcc = acc - arrived;
-  if (arrived <= 0) return;
+  if (state.stars.revealed) {
+    const dust = d.stardustPerSecond.mul(step);
+    if (starsAutomated(state)) {
+      state.stars.stardust = state.stars.stardust.add(dust);
+      state.stars.stardustTotal = state.stars.stardustTotal.add(dust);
+    } else {
+      state.stars.pending = state.stars.pending.add(dust);
+    }
+  }
 
-  const guideAcc = night.guideAcc + arrived * d.guideChance;
-  const guided = Math.min(arrived, Math.floor(guideAcc + EPS));
-  night.guideAcc = Math.max(0, guideAcc - guided);
+  // Ships: counted from elapsed time within the segment, so slicing time differently
+  // can never move a ship across a heartbeat.
+  const total = Math.floor(night.shipAcc + night.segRate * (night.runTime - night.segStart) + EPS);
+  const arrived = total - night.segArrived;
+  if (arrived <= 0) return;
+  night.segArrived = total;
+  const guidedTotal = Math.min(total, Math.floor(night.guideAcc + total * night.segGuide + EPS));
+  const guided = Math.max(0, guidedTotal - night.segGuided);
+  night.segGuided += guided;
   const missed = arrived - guided;
 
   if (guided > 0) {
@@ -115,6 +131,7 @@ function fireDueEvents(state: GameState): void {
  */
 export function advanceInPlace(state: GameState, dt: number, emit: boolean = false): void {
   if (!(dt > 0) || !Number.isFinite(dt)) return;
+  state.quiet = !emit;
   let remaining = dt;
   let guard = 0;
   while (remaining > EPS && guard++ < ENGINE.maxStepsPerAdvance) {
@@ -154,6 +171,7 @@ export function applyOffline(
   const glimmerBefore = next.dawn.glimmerTotal;
   const stoneBefore = next.coast.stoneTotal.add(next.coast.pending);
   const tideBefore = next.tides.tideTotal.add(next.tides.pending);
+  const dustBefore = next.stars.stardustTotal.add(next.stars.pending);
   const autoBefore = next.stats.autoPurchases;
   advanceInPlace(next, applied, false);
   next.stats.offlineTime += applied;
@@ -170,6 +188,7 @@ export function applyOffline(
       glimmerEarned: next.dawn.glimmerTotal.sub(glimmerBefore).max(0),
       stoneEarned: next.coast.stoneTotal.add(next.coast.pending).sub(stoneBefore).max(0),
       tideEarned: next.tides.tideTotal.add(next.tides.pending).sub(tideBefore).max(0),
+      stardustEarned: next.stars.stardustTotal.add(next.stars.pending).sub(dustBefore).max(0),
       autoPurchases: next.stats.autoPurchases - autoBefore,
     },
   };

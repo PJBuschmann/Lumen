@@ -24,9 +24,9 @@ export interface TerrainDef {
 
 export const COAST = {
   /** Glimmer gathered in one run that brings the coastline into view. */
-  revealGlimmer: 1250,
+  revealGlimmer: 1340,
   /** Stone per second = surveyRate * max(0, record - surveyOffset) ^ surveyPower. */
-  surveyRate: 0.0045,
+  surveyRate: 0.0107,
   surveyOffset: 1.5,
   surveyPower: 2,
   /** Once Dawn is tended for you, this share of a Dawn's Glimmer arrives every second. */
@@ -67,9 +67,9 @@ export const COAST = {
   } satisfies Record<TerrainId, TerrainDef> as Record<TerrainId, TerrainDef>,
   lighthouse: {
     /** Orders of magnitude of Light per level (before terrain). */
-    powerPerLevel: 0.025,
+    powerPerLevel: 0.0125,
     /** Extra OoM for each pair of neighbouring lighthouses, per level they share. */
-    synergyPerPair: 0.01,
+    synergyPerPair: 0.005,
     /** Stone to build lighthouse number n (0-based): base * (n + offset) ^ power * terrain cost. */
     build: { base: 1.3, offset: 2, power: 0.5 },
     /** Stone to raise a lighthouse from level l: base * (l + offset) ^ power * terrain cost. */

@@ -81,6 +81,39 @@ describe('save migrations', () => {
     expect(next.stats.totalLight.gt(state.stats.totalLight)).toBe(true);
   });
 
+  it('migrates a real schema-3 save (through the Tides) and keeps all progress', () => {
+    const result = loadFromJson(fixture('save-v3.json'));
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    expect(result.migratedFrom).toBe(3);
+    const state = result.state;
+    expect(state.schema).toBe(SCHEMA_VERSION);
+    expect(state.seed).toBe(90210);
+    expect(state.night.upgrades.wick).toBe(3997);
+    expect(state.night.runLight.log10()).toBeCloseTo(244.39, 1);
+    expect(state.dawn.upgrades).toEqual({ radiance: 20, seaLanes: 5, embers: 6, vigil: 5 });
+    expect(state.coast.surveys).toBe(190);
+    expect(state.coast.levels.slice(0, 4)).toEqual([26, 37, 37, 37]);
+    expect(state.coast.record).toBeCloseTo(60.6896, 3);
+    expect(state.tides.turns).toBe(192);
+    expect(state.tides.swell).toEqual([25, 25, 25, 26, 26, 26, 25, 24]);
+    expect(state.tides.linger).toEqual([0, 0, 0, 2, 3, 2, 0, 0]);
+    expect(state.tides.phase).toBe(2);
+    expect(state.stats.milestones.firstTides).toBeCloseTo(86847.1, 0);
+    // New in schema 4: the stars and the aurora are still beyond the horizon.
+    expect(state.stars.revealed).toBe(false);
+    expect(state.stars.levels.every((level) => level === 0)).toBe(true);
+    expect(state.aurora.unlocked).toBe(false);
+    expect(state.aurora.active).toBeNull();
+    expect(Object.values(state.aurora.completions).every((tier) => tier === 0)).toBe(true);
+    // And the game carries on, moon and all. (Balance has changed since this save was made,
+    // so we check that ships keep coming rather than comparing Light with the old economy.)
+    const next = tick(result.state, 600);
+    expect(next.stats.shipsGuided).toBeGreaterThan(state.stats.shipsGuided);
+    expect(next.coast.stoneTotal.gt(state.coast.stoneTotal)).toBe(true);
+    expect(next.tides.phaseEndsAt).toBeGreaterThan(state.tides.phaseEndsAt);
+  });
+
   it('migrateSave steps one version at a time and fails loudly on a gap', () => {
     const migrated = migrateSave({ schema: 1, savedAt: 0, game: {} });
     expect(migrated.schema).toBe(SCHEMA_VERSION);

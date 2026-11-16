@@ -5,16 +5,23 @@
  *   Dawn       -> the apprentice buys Night upgrades
  *   Coastline  -> Dawn's Glimmer flows in on its own and Dawn upgrades are bought
  *   Tides      -> surveyed Stone arrives on its own and lighthouses are built
+ *   Stars      -> drawn Tide arrives on its own and the cycle is reshaped
+ *   Aurora     -> Stardust arrives on its own and stars are charted
  */
+import { AURORA } from '../content/aurora';
 import { COAST } from '../content/coast';
 import { DAWN_UPGRADE_ORDER } from '../content/dawn';
 import type { NightUpgradeId } from '../content/night';
+import { STARS } from '../content/stars';
 import { TIDES } from '../content/tides';
+import { checkChallenge } from './aurora';
 import { coastAutomated, dawnAutomated, runAutoBuilder } from './coast';
 import { apprenticeSkills, buyDawnUpgrade, dawnGain } from './dawn';
 import { log10p1 } from './decimal';
-import { pushEvent } from './events';
-import { buyNightUpgrade } from './night';
+import { getDerived } from './derive';
+import { pushEvent, reachMilestone } from './events';
+import { buyNightUpgrade, nightUpgradeLocked } from './night';
+import { openStarMap, runAutoStars } from './stars';
 import { runAutoTides, startMoon } from './tides';
 import type { GameState } from './types';
 
@@ -27,7 +34,7 @@ export function runApprentice(state: GameState): number {
   if (skills.length === 0) return 0;
   let bought = 0;
   for (const id of APPRENTICE_ORDER) {
-    if (!skills.includes(id)) continue;
+    if (!skills.includes(id) || nightUpgradeLocked(state, id)) continue;
     const count = buyNightUpgrade(state, id, 'max');
     if (count > 0) {
       bought += count;
@@ -45,7 +52,7 @@ export function runAutoDawn(state: GameState, elapsed: number): number {
   if (!dawnAutomated(state)) return 0;
   const gain = dawnGain(state);
   if (gain.gt(0)) {
-    const flow = gain.mul(COAST.passiveDawnShare * elapsed);
+    const flow = gain.mul(getDerived(state).passiveDawnShare * elapsed);
     state.dawn.glimmer = state.dawn.glimmer.add(flow);
     state.dawn.glimmerTotal = state.dawn.glimmerTotal.add(flow);
     state.derived = null;
@@ -75,6 +82,18 @@ export function checkReveals(state: GameState): void {
     startMoon(state);
     pushEvent(state, { type: 'reveal', layer: 'tides' });
   }
+  const stars = state.stars;
+  if (!stars.revealed && tides.tideTotal.gte(STARS.revealTide)) {
+    openStarMap(state);
+    pushEvent(state, { type: 'reveal', layer: 'stars' });
+  }
+  const aurora = state.aurora;
+  if (!aurora.unlocked && stars.stardustTotal.gte(AURORA.unlockStardust)) {
+    aurora.unlocked = true;
+    state.derived = null;
+    reachMilestone(state, 'auroraUnlocked');
+    pushEvent(state, { type: 'reveal', layer: 'aurora' });
+  }
 }
 
 /** Keep the records that drive passive income. Only ever rise. */
@@ -92,6 +111,7 @@ export function updateRecords(state: GameState): void {
  */
 export function runHeartbeat(state: GameState, elapsed: number): void {
   let bought = 0;
+  bought += runAutoStars(state);
   bought += runAutoTides(state);
   bought += runAutoBuilder(state);
   bought += runAutoDawn(state, elapsed);
@@ -99,7 +119,8 @@ export function runHeartbeat(state: GameState, elapsed: number): void {
   state.stats.autoPurchases += bought;
   updateRecords(state);
   checkReveals(state);
-  state.derived = null;
+  checkChallenge(state);
+  // Each step above invalidates the caches it affects; a quiet beat keeps them.
 }
 
 export { coastAutomated, dawnAutomated };

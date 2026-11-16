@@ -29,6 +29,8 @@ export function quantile(sorted: number[], q: number): number {
   const pos = (sorted.length - 1) * q;
   const lo = Math.floor(pos);
   const hi = Math.ceil(pos);
+  // Equal neighbours (including two Infinities) need no interpolation.
+  if (lo === hi || sorted[lo] === sorted[hi]) return sorted[lo];
   return sorted[lo] + (sorted[hi] - sorted[lo]) * (pos - lo);
 }
 
@@ -81,7 +83,18 @@ export interface Aggregate {
   peakLightLog: number;
 }
 
-const SAMPLE_KEYS: (keyof Omit<Sample, 't'>)[] = ['light', 'rate', 'glimmer', 'stone', 'tide', 'coastPower', 'tidePower'];
+const SAMPLE_KEYS: (keyof Omit<Sample, 't'>)[] = [
+  'light',
+  'rate',
+  'glimmer',
+  'stone',
+  'tide',
+  'stardust',
+  'coastPower',
+  'tidePower',
+  'starPower',
+  'auroraPower',
+];
 
 /** Value of a step-held sample series at time t. */
 function sampleAt(samples: Sample[], t: number, key: keyof Omit<Sample, 't'>): number {

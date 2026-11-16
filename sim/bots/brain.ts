@@ -2,12 +2,15 @@
  * The bot brain. One implementation, four personalities (see policies.ts):
  * how it picks purchases, when it prestiges, and when it is at the keyboard.
  */
+import { CHALLENGE_ORDER } from '../../src/content/aurora';
+import type { ChallengeId } from '../../src/content/aurora';
 import { DAWN } from '../../src/content/dawn';
 import {
   apprenticeSkills,
   bestAffordableOption,
   bestOption,
   canDawn,
+  canEnterChallenge,
   dawnAutomated,
   dawnGain,
   getDerived,
@@ -25,7 +28,13 @@ const MAX_PATIENCE_BUSY = 20;
 const MAX_PATIENCE_IDLE = 60;
 const MIN_PATIENCE = 0.25;
 /** A bot never prestiges a wider layer more often than this (seconds). */
-const MIN_RUN = { double: 90, optimal: 45 } as const;
+const MIN_RUN = { double: 180, optimal: 60 } as const;
+/** A bot saves up for a purchase only if income covers it within this many seconds. */
+const SAVING_WINDOW = 8 * 60;
+/** How long a bot stays in an Aurora challenge before deciding it is not ready (seconds). */
+const CHALLENGE_PATIENCE = 12 * 60;
+/** After a failed attempt, a bot waits for its record Light exponent to grow this much. */
+const CHALLENGE_RETRY_GROWTH = 1.06;
 /** A night this long is greeted even if the Glimmer would not double. */
 const LONG_NIGHT = 18 * 60;
 /** How long the patient bot waits for a run to catch up with its record before banking anyway. */
@@ -82,6 +91,30 @@ function pickNightRoi(state: GameState, options: Option[]): Option | null {
 }
 
 export function createBot(policy: Policy): Bot {
+  /** Record Light exponent at each challenge's last unsuccessful attempt. */
+  const failedAt = new Map<ChallengeId, number>();
+
+  /** Aurora: step into a challenge that looks ready, or out of one that is not. */
+  function auroraMove(state: GameState): Action | null {
+    if (!state.aurora.unlocked) return null;
+    const record = state.stats.bestRunLight.gt(1) ? state.stats.bestRunLight.log10() : 0;
+    const active = state.aurora.active;
+    if (active !== null) {
+      if (state.night.runTime < CHALLENGE_PATIENCE) return null;
+      failedAt.set(active, record);
+      return { type: 'leaveChallenge' };
+    }
+    // Let an ordinary night settle before trying anything.
+    if (state.night.runTime < MIN_RUN[policy.prestige]) return null;
+    for (const id of CHALLENGE_ORDER) {
+      if (!canEnterChallenge(state, id)) continue;
+      const last = failedAt.get(id);
+      if (last !== undefined && record < last * CHALLENGE_RETRY_GROWTH) continue;
+      return { type: 'enterChallenge', id };
+    }
+    return null;
+  }
+
   /** Should the bot greet the dawn now? (Only while Dawn is still done by hand.) */
   function wantsDawn(state: GameState): boolean {
     if (dawnAutomated(state) || !canDawn(state)) return false;
@@ -109,18 +142,31 @@ export function createBot(policy: Policy): Bot {
     return Math.log1p(ratio) >= (growth * state.night.runTime * ratio) / (1 + ratio);
   }
 
-  /** The structure purchase this bot is saving for on a wider layer. */
+  /**
+   * The structure purchase this bot is saving for on a wider layer: the best value among
+   * those it could afford within a few minutes. Nobody sensible stares at an empty purse
+   * for an hour because the very best item is expensive.
+   */
   function target(state: GameState, layer: UpperLayer): StructureOption | null {
     const options = layer.options(state);
-    if (policy.choice === 'cheapest') {
-      let cheapest: StructureOption | null = null;
-      for (const option of options) {
-        if (option.gain <= 0) continue;
-        if (cheapest === null || option.cost.lt(cheapest.cost)) cheapest = option;
+    const have = layer.purse(state).add(layer.pending(state));
+    const income = layer.income(state);
+    const reach = have.add(income.mul(SAVING_WINDOW));
+    let best: StructureOption | null = null;
+    let bestScore = -Infinity;
+    let nearest: StructureOption | null = null;
+    for (const option of options) {
+      if (option.gain <= 0) continue;
+      if (nearest === null || option.cost.lt(nearest.cost)) nearest = option;
+      if (option.cost.gt(reach)) continue;
+      const score = policy.choice === 'cheapest' ? -option.cost.log10() : Math.log10(option.gain) - option.cost.log10();
+      if (score > bestScore) {
+        bestScore = score;
+        best = option;
       }
-      return cheapest;
     }
-    return bestOption(options);
+    // Nothing within reach: head for whatever is closest.
+    return best ?? nearest;
   }
 
   /** Spend from a wider layer's purse, if anything worthwhile is affordable. */
@@ -137,6 +183,8 @@ export function createBot(policy: Policy): Bot {
 
   /** Should the bot prestige this wider layer now? */
   function wantsBank(state: GameState, layer: UpperLayer): boolean {
+    // A prestige begins a new night, which would throw away a challenge attempt.
+    if (state.aurora.active !== null) return false;
     if (!layer.canBank(state)) return false;
     const goal = target(state, layer);
     if (!goal) return false;
@@ -165,6 +213,9 @@ export function createBot(policy: Policy): Bot {
         if (purchase) return purchase;
         if (wantsBank(state, layer)) return layer.bank;
       }
+
+      const aurora = auroraMove(state);
+      if (aurora) return aurora;
 
       if (wantsDawn(state)) return { type: 'dawn' };
 

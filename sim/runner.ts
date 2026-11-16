@@ -14,6 +14,7 @@ import {
   isFiniteDecimal,
   log10p1,
   rngNext,
+  totalCompletions,
 } from '../src/engine';
 import type { GameState, MilestoneId } from '../src/engine';
 import { createBot } from './bots/brain';
@@ -29,6 +30,8 @@ export interface RunConfig {
   stopAfter?: MilestoneId;
   /** Extra seconds to keep playing after `stopAfter`. */
   tailSeconds?: number;
+  /** Purchase gaps are only recorded until this milestone (the endgame beyond it is unpaced). */
+  gapsUntil?: MilestoneId;
 }
 
 export interface Sample {
@@ -42,9 +45,12 @@ export interface Sample {
   glimmer: number;
   stone: number;
   tide: number;
-  /** Orders of magnitude of Light contributed by the coastline and by the tides. */
+  stardust: number;
+  /** Orders of magnitude of Light contributed by each wider layer. */
   coastPower: number;
   tidePower: number;
+  starPower: number;
+  auroraPower: number;
 }
 
 /** Upper edges (seconds) of the purchase-gap histogram buckets. */
@@ -58,6 +64,8 @@ export interface RunResult {
   /** Active (in-session) seconds at which each milestone was first reached. */
   activeMilestones: Partial<Record<MilestoneId, number>>;
   purchases: number;
+  /** Purchases made by the time each milestone was reached. */
+  purchasesAt: Partial<Record<MilestoneId, number>>;
   /** Count of gaps between consecutive purchases, by GAP_BUCKETS, in active seconds. */
   gapHistogram: number[];
   /** Longest active stretch without a purchase, and when (wall-clock) it ended. */
@@ -70,6 +78,8 @@ export interface RunResult {
   activeSeconds: number;
   /** log10 of lifetime Light at the end. */
   finalLightLog: number;
+  /** Aurora challenge tiers completed by the end. */
+  challengeTiers: number;
   /** True if any currency ever became NaN/Infinity. */
   numericFailure: boolean;
   computeMs: number;
@@ -114,12 +124,20 @@ function checkNumbers(state: GameState): boolean {
     isFiniteDecimal(state.tides.tide) &&
     isFiniteDecimal(state.tides.tideTotal) &&
     isFiniteDecimal(state.tides.pending) &&
+    isFiniteDecimal(state.stars.stardust) &&
+    isFiniteDecimal(state.stars.stardustTotal) &&
+    isFiniteDecimal(state.stars.pending) &&
     Number.isFinite(state.coast.record) &&
     Number.isFinite(state.time)
   );
 }
 
 export function runBot(config: RunConfig): RunResult {
+  return runBotWithState(config).result;
+}
+
+/** Like runBot, but also hands back the final game state (for tools that keep playing it). */
+export function runBotWithState(config: RunConfig): { result: RunResult; state: GameState } {
   const started = performance.now();
   const policy = POLICIES[config.policy];
   const bot = createBot(policy);
@@ -152,6 +170,7 @@ export function runBot(config: RunConfig): RunResult {
     milestones: {},
     activeMilestones: {},
     purchases: 0,
+    purchasesAt: {},
     gapHistogram: GAP_BUCKETS.map(() => 0),
     maxGap: 0,
     maxGapAt: 0,
@@ -160,6 +179,7 @@ export function runBot(config: RunConfig): RunResult {
     wallSeconds: 0,
     activeSeconds: 0,
     finalLightLog: 0,
+    challengeTiers: 0,
     numericFailure: false,
     computeMs: 0,
   };
@@ -172,6 +192,7 @@ export function runBot(config: RunConfig): RunResult {
   let wasInSession = false;
 
   const recordGap = (gap: number) => {
+    if (config.gapsUntil !== undefined && result.milestones[config.gapsUntil] !== undefined) return;
     for (let i = 0; i < GAP_BUCKETS.length; i++) {
       if (gap <= GAP_BUCKETS[i]) {
         result.gapHistogram[i] += 1;
@@ -189,6 +210,7 @@ export function runBot(config: RunConfig): RunResult {
       if (result.milestones[id] === undefined && state.stats.milestones[id] !== undefined) {
         result.milestones[id] = wall;
         result.activeMilestones[id] = active;
+        result.purchasesAt[id] = result.purchases;
         if (id === config.stopAfter) stopAt = Math.min(stopAt, wall + (config.tailSeconds ?? 0));
       }
     }
@@ -200,8 +222,11 @@ export function runBot(config: RunConfig): RunResult {
         glimmer: log10p1(state.dawn.glimmerTotal),
         stone: log10p1(state.coast.stoneTotal),
         tide: log10p1(state.tides.tideTotal),
+        stardust: log10p1(state.stars.stardustTotal),
         coastPower: getDerived(state).coastPower,
         tidePower: getDerived(state).tidePower,
+        starPower: getDerived(state).starPower,
+        auroraPower: getDerived(state).auroraPower,
       });
       nextSample = Math.max(nextSample + 30, nextSample * 1.03);
       if (!checkNumbers(state)) result.numericFailure = true;
@@ -253,7 +278,8 @@ export function runBot(config: RunConfig): RunResult {
   result.wallSeconds = wall;
   result.activeSeconds = active;
   result.finalLightLog = log10p1(state.stats.totalLight);
+  result.challengeTiers = totalCompletions(state);
   if (!checkNumbers(state)) result.numericFailure = true;
   result.computeMs = performance.now() - started;
-  return result;
+  return { result, state };
 }

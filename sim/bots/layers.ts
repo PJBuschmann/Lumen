@@ -4,19 +4,22 @@
  * bot brain free of layer-specific code.
  */
 import {
+  canAscend,
   canSurvey,
   canTurnTide,
   coastAutomated,
   coastOptions,
   getDerived,
   log10p1,
+  starOptions,
+  starsAutomated,
   tideOptions,
   tidesAutomated,
 } from '../../src/engine';
 import type { Action, Decimal, GameState, StructureOption } from '../../src/engine';
 
 export interface UpperLayer {
-  id: 'coast' | 'tides';
+  id: 'coast' | 'tides' | 'stars';
   /** The player still has to work this layer by hand. */
   manual(state: GameState): boolean;
   purse(state: GameState): Decimal;
@@ -34,6 +37,18 @@ export interface UpperLayer {
 }
 
 export const UPPER_LAYERS: readonly UpperLayer[] = [
+  {
+    id: 'stars',
+    manual: (s) => s.stars.revealed && !starsAutomated(s),
+    purse: (s) => s.stars.stardust,
+    pending: (s) => s.stars.pending,
+    income: (s) => getDerived(s).stardustPerSecond,
+    options: starOptions,
+    bank: { type: 'ascend' },
+    canBank: canAscend,
+    // Stardust income depends on the shape of the tides, which a reset never touches.
+    recovered: () => 1,
+  },
   {
     id: 'tides',
     manual: (s) => s.tides.revealed && !tidesAutomated(s),

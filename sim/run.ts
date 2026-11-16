@@ -70,6 +70,8 @@ async function main(): Promise<void> {
         // Once the last milestone is in, play one more day and stop.
         stopAfter: args.days ? undefined : last,
         tailSeconds: 86400,
+        // The Aurora is endgame content with deliberately distant goals: pacing rules stop there.
+        gapsUntil: last,
       });
     }
   }

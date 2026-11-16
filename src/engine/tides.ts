@@ -7,6 +7,7 @@ import type { MoonPhaseDef } from '../content/tides';
 import { D, Decimal, ZERO, powLevel } from './decimal';
 import { bestAffordableOption, collectSurvey } from './coast';
 import { resetDawn } from './dawn';
+import { getStructure, invalidateStructure } from './derive';
 import { pushEvent, reachMilestone } from './events';
 import type { GameState, StructureOption } from './types';
 
@@ -14,9 +15,9 @@ export function moonPhase(index: number): MoonPhaseDef {
   return TIDES.phases[((index % PHASE_COUNT) + PHASE_COUNT) % PHASE_COUNT];
 }
 
-/** Whether the tides reshape themselves (after the first Ascension). Set by the stars layer. */
-export function tidesAutomated(_state: GameState): boolean {
-  return false;
+/** Whether the tides reshape themselves (after the first Ascension). */
+export function tidesAutomated(state: GameState): boolean {
+  return state.stars.ascensions > 0;
 }
 
 /** Seconds a phase lasts, including its Linger levels. */
@@ -53,9 +54,12 @@ export function tideBasePower(swell: readonly number[]): number {
   return TIDES.swell.powerPerLevel * swellTotal(swell);
 }
 
-/** Orders of magnitude of Light from the tides while `phase` is in the sky. */
-export function tidePowerAt(swell: readonly number[], phase: number): number {
-  return TIDES.swell.powerPerLevel * (swellTotal(swell) + TIDES.swell.resonance * swell[phase]);
+/**
+ * Orders of magnitude of Light from the tides while `phase` is in the sky.
+ * `extraResonance` is added to the base resonance (a star keystone grants it).
+ */
+export function tidePowerAt(swell: readonly number[], phase: number, extraResonance: number = 0): number {
+  return TIDES.swell.powerPerLevel * (swellTotal(swell) + (TIDES.swell.resonance + extraResonance) * swell[phase]);
 }
 
 export function swellCost(level: number): Decimal {
@@ -73,28 +77,43 @@ export function basePullRate(coastPower: number, phase: number): number {
   return TIDES.pullRate * Math.pow(reach, TIDES.pullPower) * TIDES.phases[phase].traffic;
 }
 
-/** Every reshaping purchase available, with cost and estimated benefit. */
+/** Every reshaping purchase available, with cost and estimated benefit. Do not mutate. */
 export function tideOptions(state: GameState): StructureOption[] {
+  if (!state.tides.revealed) return [];
+  const structure = getStructure(state);
+  if (structure.options.tides === null) structure.options.tides = buildTideOptions(state);
+  return structure.options.tides;
+}
+
+function buildTideOptions(state: GameState): StructureOption[] {
   const tides = state.tides;
-  if (!tides.revealed) return [];
   const options: StructureOption[] = [];
-  const cycle = moonCycleDuration(tides.linger);
-  const traffic = averageTraffic(tides.linger);
-  const base = tideBasePower(tides.swell);
+  const structure = getStructure(state);
+  const fx = structure.stars;
+  const base = structure.tideBasePower;
+  const resonance = TIDES.swell.resonance + fx.resonance;
+  // Totals over the cycle, so "what if this phase were longer" is plain arithmetic.
+  let cycle = 0;
+  let weighted = 0;
+  for (let phase = 0; phase < PHASE_COUNT; phase++) {
+    const d = phaseDuration(tides.linger, phase);
+    cycle += d;
+    weighted += d * TIDES.phases[phase].traffic;
+  }
+  const traffic = weighted / cycle;
+  const extra = TIDES.phaseSeconds * TIDES.linger.step;
   for (let phase = 0; phase < PHASE_COUNT; phase++) {
     const share = phaseDuration(tides.linger, phase) / cycle;
     options.push({
       action: { type: 'swellPhase', phase, count: 1 },
       cost: swellCost(tides.swell[phase]),
-      gain: TIDES.swell.powerPerLevel * (1 + TIDES.swell.resonance * share),
+      gain: TIDES.swell.powerPerLevel * fx.swellMult * (1 + resonance * share),
       label: `tides.swell.${phase}`,
     });
     const level = tides.linger[phase];
     if (level < TIDES.linger.maxLevel) {
-      const longer = tides.linger.slice();
-      longer[phase] = level + 1;
       // More Tide per second, valued as the Swell it will eventually buy (cubic costs -> 1/3).
-      const ratio = averageTraffic(longer) / traffic;
+      const ratio = (weighted + extra * TIDES.phases[phase].traffic) / (cycle + extra) / traffic;
       options.push({
         action: { type: 'lingerPhase', phase },
         cost: lingerCost(level),
@@ -119,7 +138,7 @@ export function buySwell(state: GameState, phase: number, count: number): number
     tides.swell[phase] += 1;
     gained += 1;
   }
-  if (gained > 0) state.derived = null;
+  if (gained > 0) invalidateStructure(state);
   return gained;
 }
 
@@ -134,7 +153,7 @@ export function buyLinger(state: GameState, phase: number): boolean {
   tides.linger[phase] = level + 1;
   // The phase in the sky lasts longer straight away.
   if (tides.phase === phase) tides.phaseEndsAt += TIDES.phaseSeconds * TIDES.linger.step;
-  state.derived = null;
+  invalidateStructure(state);
   return true;
 }
 
@@ -159,6 +178,15 @@ export function performTurn(state: GameState): boolean {
   return true;
 }
 
+/** Claim any waiting Tide without a reset (used when the tides become automatic). */
+export function collectTide(state: GameState): void {
+  const tides = state.tides;
+  if (tides.pending.lte(0)) return;
+  tides.tide = tides.tide.add(tides.pending);
+  tides.tideTotal = tides.tideTotal.add(tides.pending);
+  tides.pending = ZERO;
+}
+
 /** Start the moon's clock when the tides are first revealed. */
 export function startMoon(state: GameState): void {
   state.tides.phase = 0;
@@ -175,11 +203,31 @@ export function advancePhase(state: GameState): void {
   pushEvent(state, { type: 'phase', phase: tides.phase });
 }
 
+/** Cost of the cheapest reshaping purchase on offer. */
+export function cheapestTideCost(state: GameState): Decimal {
+  const structure = getStructure(state);
+  if (structure.cheapest.tides === null) {
+    const tides = state.tides;
+    let min: Decimal | null = null;
+    for (let phase = 0; phase < PHASE_COUNT; phase++) {
+      const swell = swellCost(tides.swell[phase]);
+      if (min === null || swell.lt(min)) min = swell;
+      if (tides.linger[phase] < TIDES.linger.maxLevel) {
+        const linger = lingerCost(tides.linger[phase]);
+        if (linger.lt(min)) min = linger;
+      }
+    }
+    structure.cheapest.tides = min ?? ZERO;
+  }
+  return structure.cheapest.tides;
+}
+
 /** The automatic tide-reader: spends Tide on the best-value reshaping it can afford. */
 export function runAutoTides(state: GameState): number {
   if (!tidesAutomated(state)) return 0;
   let bought = 0;
   while (bought < TIDES.autoShapePerBeat) {
+    if (state.tides.tide.lt(cheapestTideCost(state))) break;
     const pick = bestAffordableOption(tideOptions(state), state.tides.tide);
     if (!pick) break;
     const action = pick.action;

@@ -119,6 +119,51 @@ describe('save and load', () => {
     expect(next.night.light.gt(0)).toBe(true);
   });
 
+  it('round-trips a late game: lighthouses, tides, stars and an active challenge', () => {
+    const state = createInitialState(8);
+    state.time = 5000;
+    state.coast.revealed = true;
+    state.coast.levels = state.coast.levels.map((_, i) => i % 5);
+    state.coast.record = 123.456;
+    state.coast.stone = D('1.5e9');
+    state.tides.revealed = true;
+    state.tides.phase = 5;
+    state.tides.phaseEndsAt = 5040;
+    state.tides.swell = [1, 2, 3, 4, 5, 6, 7, 8];
+    state.tides.linger = [0, 1, 2, 3, 4, 0, 1, 2];
+    state.stars.revealed = true;
+    state.stars.levels = state.stars.levels.map((_, i) => (i % 4 === 0 ? 1 : 0));
+    state.stars.pending = D(77.5);
+    state.aurora.unlocked = true;
+    state.aurora.completions.fogbound = 2;
+    state.aurora.active = 'darkMoon';
+    const result = loadFromJson(saveToJson(state, 3));
+    if (!result.ok) throw new Error(result.error);
+    expect(comparable(result.state)).toBe(comparable(state));
+    expect(result.state.aurora.active).toBe('darkMoon');
+    expect(comparable(tick(result.state, 300))).toBe(comparable(tick(state, 300)));
+  });
+
+  it('drops impossible late-game values', () => {
+    const state = createInitialState(8);
+    state.stars.revealed = true;
+    state.aurora.unlocked = true;
+    const save = serializeState(state, 1);
+    (save.game.stars as Record<string, unknown>).levels = { polaris: 0, 'lantern-7': 99, bogus: 5 };
+    (save.game.aurora as Record<string, unknown>).active = 'not-a-challenge';
+    (save.game.aurora as Record<string, unknown>).completions = { fogbound: 999, bogus: 1 };
+    (save.game.tides as Record<string, unknown>).linger = [99, -1, 'x'];
+    (save.game.coast as Record<string, unknown>).levels = 'none';
+    const result = loadSave(save);
+    if (!result.ok) throw new Error(result.error);
+    const loaded = result.state;
+    expect(loaded.aurora.active).toBeNull();
+    expect(loaded.aurora.completions.fogbound).toBe(5);
+    expect(loaded.stars.levels.reduce((a, b) => a + b, 0)).toBe(2); // Polaris restored, keystone capped at 1
+    expect(loaded.tides.linger.slice(0, 3)).toEqual([4, 0, 0]);
+    expect(loaded.coast.levels.every((level) => level === 0)).toBe(true);
+  });
+
   it('a minimal save body loads as a fresh game', () => {
     const result = loadSave({ schema: 1, savedAt: 9, game: {} });
     expect(result.ok).toBe(true);

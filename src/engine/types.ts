@@ -3,13 +3,23 @@
  */
 import type { Decimal } from './decimal';
 import type { NightUpgradeId } from '../content/night';
+import type { ChallengeId, ChallengeRules } from '../content/aurora';
 import type { DawnUpgradeId } from '../content/dawn';
 
 /** Current save schema version. Bump when the persisted shape changes; add a migration. */
-export const SCHEMA_VERSION = 3;
+export const SCHEMA_VERSION = 4;
 
 /** Milestones in canonical order (also the order they are saved in). */
-export const MILESTONE_IDS = ['firstShip', 'firstUpgrade', 'firstDawn', 'firstCoast', 'firstTides'] as const;
+export const MILESTONE_IDS = [
+  'firstShip',
+  'firstUpgrade',
+  'firstDawn',
+  'firstCoast',
+  'firstTides',
+  'firstStar',
+  'auroraUnlocked',
+  'firstChallenge',
+] as const;
 export type MilestoneId = (typeof MILESTONE_IDS)[number];
 
 export interface RngState {
@@ -27,10 +37,22 @@ export interface NightState {
   /** Light earned since this night began (never reduced by spending). */
   runLight: Decimal;
   upgrades: Record<NightUpgradeId, number>;
-  /** Fractional ship arrivals carried between steps. */
+  /**
+   * Ships are counted from elapsed time, not frame by frame: within a "segment" (a stretch
+   * of constant traffic and guide chance) the ships arrived so far are
+   * floor(shipAcc + segRate * (runTime - segStart)). That makes the count independent of
+   * how time is sliced. shipAcc / guideAcc are the fractions carried into the segment.
+   */
   shipAcc: number;
-  /** Fractional guided ships carried between steps. */
   guideAcc: number;
+  /** runTime at which the current segment began. */
+  segStart: number;
+  /** Ships arrived / guided so far in the current segment. */
+  segArrived: number;
+  segGuided: number;
+  /** Traffic and guide chance in force for the current segment (-1 = not started). */
+  segRate: number;
+  segGuide: number;
   /** Seconds since this night began. */
   runTime: number;
   /** runTime of the previous heartbeat. */
@@ -87,6 +109,47 @@ export interface TidesState {
   linger: number[];
 }
 
+export interface StarsState {
+  /** The star map is open (Stardust starts drifting in). */
+  revealed: boolean;
+  /** Spendable Stardust. */
+  stardust: Decimal;
+  stardustTotal: Decimal;
+  /** Stardust gathered but not yet claimed by an Ascension. */
+  pending: Decimal;
+  /** Ascensions made. After the first, the tides reshape themselves. */
+  ascensions: number;
+  /** Level per star (0 = unlit), in STARS.stars order. */
+  levels: number[];
+}
+
+export interface AuroraState {
+  unlocked: boolean;
+  /** The challenge being attempted, if any. */
+  active: ChallengeId | null;
+  /** Tiers completed per challenge. After the first completion, the stars chart themselves. */
+  completions: Record<ChallengeId, number>;
+}
+
+/** Everything the star map changes elsewhere in the game, summed over lit stars. */
+export interface StarEffects {
+  /** Orders of magnitude of Light from beacons, Polaris and completed constellations. */
+  lightPower: number;
+  stoneMult: number;
+  tideMult: number;
+  dustMult: number;
+  /** Orders of magnitude of Glimmer gain. */
+  glimmerLog: number;
+  trafficMult: number;
+  synergyMult: number;
+  /** Added to the Swell resonance. */
+  resonance: number;
+  passiveDawnMult: number;
+  /** Added to the long-night exponent. */
+  vigil: number;
+  swellMult: number;
+}
+
 export interface StatsState {
   /** Light earned across the whole save. */
   totalLight: Decimal;
@@ -106,6 +169,26 @@ export interface StatsState {
   milestones: Partial<Record<MilestoneId, number>>;
 }
 
+/**
+ * Values derived from the permanent structures (lighthouses, tides, stars, challenges).
+ * They change only when a structure is bought, so they are cached separately from the
+ * per-night values and survive heartbeats.
+ */
+export interface Structure {
+  stars: StarEffects;
+  /** Coastline power with star synergy applied (drives Tide income). */
+  coastPower: number;
+  /** Coastline power without any neighbour synergy (used by a challenge rule). */
+  coastPowerAlone: number;
+  /** Tide power that applies in every phase, with star multipliers (drives Stardust income). */
+  tideBasePower: number;
+  auroraPower: number;
+  /** Cheapest purchase on each wider layer; lets automation skip work it cannot afford. */
+  cheapest: { coast: Decimal | null; tides: Decimal | null; stars: Decimal | null };
+  /** Purchase lists per wider layer, built on demand; they only depend on structures. */
+  options: { coast: StructureOption[] | null; tides: StructureOption[] | null; stars: StructureOption[] | null };
+}
+
 /** Values derived from state. They only change at events (beats, purchases, weather...). */
 export interface Derived {
   shipsPerSecond: number;
@@ -119,10 +202,24 @@ export interface Derived {
   coastPower: number;
   /** Orders of magnitude of Light from the tides right now (includes the phase in the sky). */
   tidePower: number;
+  /** Orders of magnitude of Light from the star map. */
+  starPower: number;
+  /** Orders of magnitude of Light from completed Aurora challenges. */
+  auroraPower: number;
   /** Stone surveyed per second. */
   stonePerSecond: Decimal;
   /** Tide drawn per second right now. */
   tidePerSecond: Decimal;
+  /** Stardust drifting in per second. */
+  stardustPerSecond: Decimal;
+  /** Share of a Dawn's Glimmer that flows in per second once Dawn is automated. */
+  passiveDawnShare: number;
+  /** Exponent of the long-night bonus. */
+  longNightPower: number;
+  /** Star map effects in force. */
+  stars: StarEffects;
+  /** Rules of the active Aurora challenge (empty when none). */
+  rules: ChallengeRules;
   /** Multiplier breakdown for the UI. */
   parts: {
     wick: Decimal;
@@ -149,6 +246,11 @@ export type GameEvent =
   | { type: 'survey'; stone: Decimal }
   | { type: 'turn'; tide: Decimal }
   | { type: 'phase'; phase: number }
+  | { type: 'ascend'; stardust: Decimal }
+  | { type: 'constellation'; id: string }
+  | { type: 'challengeStart'; id: ChallengeId }
+  | { type: 'challengeComplete'; id: ChallengeId; tier: number }
+  | { type: 'challengeLeave'; id: ChallengeId }
   | { type: 'milestone'; id: MilestoneId };
 
 export interface GameState {
@@ -161,11 +263,17 @@ export interface GameState {
   dawn: DawnState;
   coast: CoastState;
   tides: TidesState;
+  stars: StarsState;
+  aurora: AuroraState;
   stats: StatsState;
   /** Transient: events from the most recent tick/action. */
   events: GameEvent[];
+  /** Transient: when true, cosmetic events are not recorded (offline catch-up, simulator). */
+  quiet: boolean;
   /** Transient: cached derived values; null when stale. */
   derived: Derived | null;
+  /** Transient: cached structure values; null when stale. */
+  structure: Structure | null;
 }
 
 export type Action =
@@ -180,7 +288,13 @@ export type Action =
   /** Turn the tide: claim drawn Tide; Night and Dawn begin again. */
   | { type: 'turnTide' }
   | { type: 'swellPhase'; phase: number; count?: number }
-  | { type: 'lingerPhase'; phase: number };
+  | { type: 'lingerPhase'; phase: number }
+  /** Ascend: claim gathered Stardust; Night and Dawn begin again. */
+  | { type: 'ascend' }
+  /** Light an unlit star (it must touch a lit one) or brighten a lit one. */
+  | { type: 'lightStar'; star: number; count?: number }
+  | { type: 'enterChallenge'; id: ChallengeId }
+  | { type: 'leaveChallenge' };
 
 /** A purchasable structure step, with its benefit in orders of magnitude of Light. */
 export interface StructureOption {
@@ -203,6 +317,7 @@ export interface OfflineSummary {
   glimmerEarned: Decimal;
   stoneEarned: Decimal;
   tideEarned: Decimal;
+  stardustEarned: Decimal;
   /** Upgrade levels bought by automation while away. */
   autoPurchases: number;
 }

@@ -18,6 +18,7 @@ const QUANTITIES = [
   { key: 'glimmer', title: 'Glimmer', note: 'Orders of magnitude of Glimmer gathered in the current run.' },
   { key: 'stone', title: 'Stone', note: 'Orders of magnitude of all Stone surveyed (Coastline).' },
   { key: 'tide', title: 'Tide', note: 'Orders of magnitude of all Tide drawn (Tides).' },
+  { key: 'stardust', title: 'Stardust', note: 'Orders of magnitude of all Stardust gathered (Constellations).' },
 ] as const;
 
 const SHORT_LABELS: Record<string, string> = {

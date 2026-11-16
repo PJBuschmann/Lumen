@@ -116,3 +116,39 @@ was chosen and why, so it can be revisited.
   turn a one-second difference into a four-hour one.
 - **Important events are never crowded out.** Ship and automatic-purchase events are capped
   per tick; milestones, reveals, prestiges and moon phases always get through.
+
+## Constellations and Aurora
+
+- **The star map is generated from a small description** (`src/content/stars.ts`): Polaris,
+  four inner and eight outer constellations of seven stars each (four beacons, two
+  income/utility stars, one keystone), laid out from four hand-drawn shapes. 85 stars in
+  all. Star levels are saved by star id, so the map can be redrawn without breaking saves.
+- **A star can only be lit next to a lit star.** Lighting costs grow with the number lit;
+  brightening costs grow with the star's own level; both are polynomials like every wider
+  layer. Completing a constellation gives a bonus, announced as an event.
+- **"First Constellation" is the first Ascension** (the Stars layer's prestige), which is also
+  when the tides start reshaping themselves.
+- **Aurora challenges cannot be failed and never slow the rest of the game.** A challenge is
+  a fresh night under a rule; leaving costs nothing. Income of Stone, Tide and Stardust uses
+  the un-nerfed structures, so trying a challenge is never a setback.
+- **Challenge goals are set from measurement, not guesswork.** `npx tsx sim/challenges.ts`
+  plays to the Aurora unlock and reports how far each challenge can be pushed; tier goals sit
+  at about 0.9x, 1.15x, 1.45x, 1.85x and 2.4x of that. The first tier of each is within reach
+  on arrival; the last tiers are weeks of endgame.
+- **The first completed challenge automates the star map**, completing the chain: each layer
+  tends the one below it.
+- **The 30-minute purchase-gap rule is checked up to the Aurora unlock.** Beyond it the only
+  manual verbs are challenges, whose goals are deliberately far apart.
+
+## Exactness and speed
+
+- **Ships are counted from elapsed time within a segment** (a stretch of constant traffic and
+  guide chance) instead of frame by frame. A test caught a 6% offline/online drift after two
+  hours: per-frame rounding could push a ship across a heartbeat and delay the apprentice by
+  a beat. Now any slicing of time gives the same ship counts; offline and online agree to
+  about one part in 10^11.
+- **Two caches on the state**: `structure` (lighthouses, tides, stars, challenge rewards;
+  rebuilt only when a structure is bought) and `derived` (per-night rates). Automation skips
+  a wider layer in one comparison when the purse is below its cheapest purchase.
+- **The heartbeat stretches from 1 s to 64 s as a night ages** (step at most 1/16 of the
+  night's age). An 18-day game simulates in about five seconds.

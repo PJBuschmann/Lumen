@@ -65,22 +65,49 @@ export function parseDecimal(raw: unknown): Decimal {
   return ZERO;
 }
 
+/** Sum of a geometric series of `count` prices that starts at `first`. */
+export function geometricSum(first: Decimal, ratio: number, count: number): Decimal {
+  if (count <= 0) return ZERO;
+  if (count === 1) return first;
+  // Small series fit in a native number; huge ones need a Decimal power.
+  if (count * Math.log10(ratio) < 290) return first.mul((Math.pow(ratio, count) - 1) / (ratio - 1));
+  return first.mul(powLevel(ratio, count).sub(1)).div(ratio - 1);
+}
+
 /**
  * Geometric price series: the item at `owned` costs base * ratio^owned.
  * Returns the price of buying `count` items starting from `owned`.
  */
 export function geometricCost(base: Decimal, ratio: number, owned: number, count: number): Decimal {
   if (count <= 0) return ZERO;
-  const first = base.mul(powLevel(ratio, owned));
-  if (count === 1) return first;
-  // first * (ratio^count - 1) / (ratio - 1)
-  return first.mul(powLevel(ratio, count).sub(1)).div(ratio - 1);
+  return geometricSum(base.mul(powLevel(ratio, owned)), ratio, count);
 }
 
 /**
- * Largest count of items affordable from a geometric price series.
- * Verified against the exact cost so floating error can never overspend.
+ * Largest count of items affordable when the next one costs `first` and each costs
+ * `ratio` times the one before. Verified against the exact sum so floating error can
+ * never overspend.
  */
+export function geometricAffordFrom(
+  budget: Decimal,
+  first: Decimal,
+  ratio: number,
+  cap: number = Number.MAX_SAFE_INTEGER,
+): number {
+  if (cap <= 0 || budget.lt(first)) return 0;
+  // n = floor(log_ratio(budget * (ratio - 1) / first + 1))
+  const quotient = budget.div(first);
+  const raw =
+    quotient.exponent < 290
+      ? Math.floor(Math.log(quotient.toNumber() * (ratio - 1) + 1) / Math.log(ratio))
+      : Math.floor((quotient.log10() + Math.log10(ratio - 1)) / Math.log10(ratio));
+  let n = Math.max(1, Math.min(raw, cap));
+  while (n > 1 && geometricSum(first, ratio, n).gt(budget)) n -= 1;
+  while (n < cap && geometricSum(first, ratio, n + 1).lte(budget)) n += 1;
+  return n;
+}
+
+/** Largest count of items affordable from a geometric price series starting at `owned`. */
 export function geometricAfford(
   budget: Decimal,
   base: Decimal,
@@ -89,14 +116,7 @@ export function geometricAfford(
   cap: number = Number.MAX_SAFE_INTEGER,
 ): number {
   if (cap <= 0) return 0;
-  const first = base.mul(powLevel(ratio, owned));
-  if (budget.lt(first)) return 0;
-  // n = floor(log_ratio(budget * (ratio - 1) / first + 1))
-  const raw = Math.floor(budget.mul(ratio - 1).div(first).add(1).log10() / Math.log10(ratio));
-  let n = Math.max(1, Math.min(raw, cap));
-  while (n > 1 && geometricCost(base, ratio, owned, n).gt(budget)) n -= 1;
-  while (n < cap && geometricCost(base, ratio, owned, n + 1).lte(budget)) n += 1;
-  return n;
+  return geometricAffordFrom(budget, base.mul(powLevel(ratio, owned)), ratio, cap);
 }
 
 /** Polynomial price: base * (owned + 1)^power. Used by the upper layers. */

@@ -11,8 +11,8 @@ export const ENGINE = {
     /** Seconds between beats at the start of a night. */
     baseInterval: 1,
     /** The interval doubles each time the night's age doubles past this many seconds... */
-    stretchAfter: 32,
-    /** ...up to this ceiling. Keeps relative step size (interval / age) at or below 1/32. */
+    stretchAfter: 16,
+    /** ...up to this ceiling. Keeps relative step size (interval / age) at or below 1/16. */
     maxInterval: 64,
   },
   offline: {

@@ -5,11 +5,14 @@
  * Loading never trusts the input: every field is validated and falls back to a default,
  * so a damaged or hand-edited save can at worst lose the damaged field.
  */
+import { AURORA, CHALLENGE_ORDER } from '../content/aurora';
 import { DAWN, DAWN_UPGRADE_ORDER } from '../content/dawn';
+import { STARS, STAR_COUNT } from '../content/stars';
 import { PHASE_COUNT, TIDES } from '../content/tides';
 import { NIGHT_UPGRADE_ORDER } from '../content/night';
 import { parseDecimal } from './decimal';
 import type { Decimal } from './decimal';
+import { shipFractions } from './night';
 import { coastTileCount, createInitialState } from './state';
 import { MILESTONE_IDS, SCHEMA_VERSION } from './types';
 import type { GameState } from './types';
@@ -45,9 +48,18 @@ function serializeMilestones(milestones: GameState['stats']['milestones']): Reco
   return out;
 }
 
+function serializeStarLevels(levels: readonly number[]): Record<string, number> {
+  const out: Record<string, number> = {};
+  STARS.stars.forEach((star, index) => {
+    if (levels[index] > 0) out[star.id] = levels[index];
+  });
+  return out;
+}
+
 export function serializeState(state: GameState, savedAt: number): SaveFile {
   const n = state.night;
   const st = state.stats;
+  const fractions = shipFractions(n);
   return {
     schema: SCHEMA_VERSION,
     savedAt,
@@ -59,8 +71,8 @@ export function serializeState(state: GameState, savedAt: number): SaveFile {
         light: dec(n.light),
         runLight: dec(n.runLight),
         upgrades: { ...n.upgrades },
-        shipAcc: n.shipAcc,
-        guideAcc: n.guideAcc,
+        shipAcc: fractions.shipAcc,
+        guideAcc: fractions.guideAcc,
         runTime: n.runTime,
         lastBeat: n.lastBeat,
         nextBeat: n.nextBeat,
@@ -92,6 +104,20 @@ export function serializeState(state: GameState, savedAt: number): SaveFile {
         phaseEndsAt: state.tides.phaseEndsAt,
         swell: state.tides.swell.slice(),
         linger: state.tides.linger.slice(),
+      },
+      stars: {
+        revealed: state.stars.revealed,
+        stardust: dec(state.stars.stardust),
+        stardustTotal: dec(state.stars.stardustTotal),
+        pending: dec(state.stars.pending),
+        ascensions: state.stars.ascensions,
+        // Keyed by star id so the map can be redrawn or extended without breaking saves.
+        levels: serializeStarLevels(state.stars.levels),
+      },
+      aurora: {
+        unlocked: state.aurora.unlocked,
+        active: state.aurora.active,
+        completions: { ...state.aurora.completions },
       },
       stats: {
         totalLight: dec(st.totalLight),
@@ -174,6 +200,15 @@ export const MIGRATIONS: Record<number, (save: RawSave) => RawSave> = {
     },
     };
   },
+  /** 3 -> 4: the Constellations and the Aurora arrive, both still beyond the horizon. */
+  3: (save) => ({
+    ...save,
+    game: {
+      ...save.game,
+      stars: { revealed: false, stardust: '0', stardustTotal: '0', pending: '0', ascensions: 0, levels: {} },
+      aurora: { unlocked: false, active: null, completions: {} },
+    },
+  }),
 };
 
 export function migrateSave(save: RawSave): RawSave {
@@ -240,6 +275,8 @@ export function hydrateState(game: Record<string, unknown>): GameState {
     n.shipAcc = readNumber(raw.shipAcc, 0, 0, 1);
     n.guideAcc = readNumber(raw.guideAcc, 0, 0, 1);
     n.runTime = readNumber(raw.runTime, 0, 0);
+    // A loaded night starts a fresh ship segment from the saved fractions.
+    n.segStart = n.runTime;
     n.lastBeat = readNumber(raw.lastBeat, 0, 0, n.runTime);
     n.nextBeat = readNumber(raw.nextBeat, n.nextBeat, 0);
     // A beat can never be scheduled in the past or absurdly far ahead.
@@ -295,6 +332,42 @@ export function hydrateState(game: Record<string, unknown>): GameState {
         tides.phaseEndsAt = state.time + TIDES.phaseSeconds;
       }
     }
+  }
+
+  if (isRecord(game.stars)) {
+    const raw = game.stars;
+    const stars = state.stars;
+    stars.revealed = raw.revealed === true;
+    stars.stardust = parseDecimal(raw.stardust);
+    stars.stardustTotal = parseDecimal(raw.stardustTotal);
+    stars.pending = parseDecimal(raw.pending);
+    stars.ascensions = readInt(raw.ascensions, 0);
+    if (isRecord(raw.levels)) {
+      for (let i = 0; i < STAR_COUNT; i++) {
+        const star = STARS.stars[i];
+        const max = STARS.kinds[star.kind].maxLevel ?? Number.MAX_SAFE_INTEGER;
+        stars.levels[i] = readInt(raw.levels[star.id], 0, 0, max);
+      }
+    }
+    // An open map always has Polaris.
+    const polaris = STARS.stars.findIndex((star) => star.id === 'polaris');
+    if (stars.revealed && polaris >= 0 && stars.levels[polaris] <= 0) stars.levels[polaris] = 1;
+  }
+
+  if (isRecord(game.aurora)) {
+    const raw = game.aurora;
+    const aurora = state.aurora;
+    aurora.unlocked = raw.unlocked === true;
+    if (isRecord(raw.completions)) {
+      for (const id of CHALLENGE_ORDER) {
+        aurora.completions[id] = readInt(raw.completions[id], 0, 0, AURORA.challenges[id].goals.length);
+      }
+    }
+    const active = CHALLENGE_ORDER.find((id) => id === raw.active);
+    aurora.active =
+      aurora.unlocked && active !== undefined && aurora.completions[active] < AURORA.challenges[active].goals.length
+        ? active
+        : null;
   }
 
   if (isRecord(game.stats)) {

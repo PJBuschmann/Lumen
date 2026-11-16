@@ -2,14 +2,16 @@
  * Named access to balance data, so tuning tools can read and override a value by path
  * (for example "DAWN.threshold") inside the simulator process without editing files.
  */
+import { AURORA } from '../src/content/aurora';
 import { COAST } from '../src/content/coast';
 import { DAWN } from '../src/content/dawn';
 import { ENGINE } from '../src/content/engine';
 import { NIGHT } from '../src/content/night';
 import { PACING } from '../src/content/pacing';
+import { STARS } from '../src/content/stars';
 import { TIDES } from '../src/content/tides';
 
-export const CONTENT: Record<string, unknown> = { NIGHT, DAWN, COAST, TIDES, ENGINE, PACING };
+export const CONTENT: Record<string, unknown> = { NIGHT, DAWN, COAST, TIDES, STARS, AURORA, ENGINE, PACING };
 
 function resolve(path: string): { holder: Record<string, unknown>; key: string } {
   const parts = path.split('.');

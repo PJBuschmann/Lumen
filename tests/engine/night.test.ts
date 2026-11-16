@@ -69,13 +69,14 @@ describe('night formulas', () => {
   });
 
   it('heartbeat interval stretches with the age of the night', () => {
-    expect(beatInterval(0)).toBe(1);
-    expect(beatInterval(63)).toBe(1);
-    expect(beatInterval(64)).toBe(2);
-    expect(beatInterval(128)).toBe(4);
-    expect(beatInterval(1e9)).toBe(ENGINE.heartbeat.maxInterval);
+    const { baseInterval, stretchAfter, maxInterval } = ENGINE.heartbeat;
+    expect(beatInterval(0)).toBe(baseInterval);
+    expect(beatInterval(stretchAfter * 2 - 1)).toBe(baseInterval);
+    expect(beatInterval(stretchAfter * 2)).toBe(baseInterval * 2);
+    expect(beatInterval(stretchAfter * 4)).toBe(baseInterval * 4);
+    expect(beatInterval(1e9)).toBe(maxInterval);
     for (const t of [70, 200, 900, 5000]) {
-      expect(beatInterval(t) / t).toBeLessThanOrEqual(1 / 32);
+      expect(beatInterval(t) / t).toBeLessThanOrEqual(baseInterval / stretchAfter);
     }
   });
 });

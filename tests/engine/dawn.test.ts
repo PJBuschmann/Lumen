@@ -118,21 +118,22 @@ describe('dawn', () => {
   });
 
   it('a long night makes a brighter dawn', () => {
-    expect(longNightBonus(0, 0)).toBe(1);
     const { refHours, power, capHours } = DAWN.longNight;
-    expect(longNightBonus(3600 * refHours, 0)).toBeCloseTo(2 ** power, 9);
-    expect(longNightBonus(3600 * 4, 0)).toBeGreaterThan(longNightBonus(3600, 0));
+    expect(longNightPower(0)).toBe(power);
+    expect(longNightPower(2)).toBeCloseTo(power + 0.2, 12); // Long vigil raises the exponent
+    expect(longNightBonus(0, power)).toBe(1);
+    expect(longNightBonus(3600 * refHours, power)).toBeCloseTo(2 ** power, 9);
+    expect(longNightBonus(3600 * 4, power)).toBeGreaterThan(longNightBonus(3600, power));
     // Capped: a week away is worth as much as the cap.
-    expect(longNightBonus(7 * 86400, 0)).toBeCloseTo(longNightBonus(capHours * 3600, 0), 9);
-    expect(longNightBonus(-5, 0)).toBe(1);
-    // Long vigil raises the exponent.
-    expect(longNightPower(2)).toBeCloseTo(power + 0.2, 12);
-    expect(longNightBonus(3600 * 4, 3)).toBeGreaterThan(longNightBonus(3600 * 4, 0));
+    expect(longNightBonus(7 * 86400, power)).toBeCloseTo(longNightBonus(capHours * 3600, power), 9);
+    expect(longNightBonus(-5, power)).toBe(1);
+    expect(longNightBonus(3600 * 4, longNightPower(3))).toBeGreaterThan(longNightBonus(3600 * 4, power));
 
     const quick = readyForDawn(16);
     const patient = readyForDawn(16);
     patient.night.runTime = 3 * 3600;
-    expect(dawnGain(patient).toNumber()).toBeCloseTo(dawnGain(quick).toNumber() * longNightBonus(3 * 3600, 0), 6);
+    expect(getDerived(patient).longNightPower).toBe(power);
+    expect(dawnGain(patient).toNumber()).toBeCloseTo(dawnGain(quick).toNumber() * longNightBonus(3 * 3600, power), 6);
   });
 
   it('resetDawn clears Glimmer and its upgrades but the apprentice stays', () => {

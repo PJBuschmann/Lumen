@@ -14,6 +14,7 @@ function isChatter(event: GameEvent): boolean {
  */
 export function pushEvent(state: GameState, event: GameEvent): void {
   if (isChatter(event)) {
+    if (state.quiet) return;
     let chatter = 0;
     for (const queued of state.events) if (isChatter(queued)) chatter += 1;
     if (chatter >= ENGINE.maxEventsPerTick) return;

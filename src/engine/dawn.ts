@@ -40,9 +40,14 @@ export function glimmerMultiplier(glimmerTotal: Decimal): Decimal {
 }
 
 export function radianceMultiplier(level: number): Decimal {
+  if (level === radianceMemo.level) return radianceMemo.value;
   const effect = dawnUpgradeDef('radiance').effect;
-  return effect.kind === 'lightMult' ? powLevel(effect.perLevel, level) : ONE;
+  radianceMemo.level = level;
+  radianceMemo.value = effect.kind === 'lightMult' ? powLevel(effect.perLevel, level) : ONE;
+  return radianceMemo.value;
 }
+
+const radianceMemo = { level: -1, value: ONE };
 
 /** Ship traffic multiplier from Sea lanes. */
 export function seaLanesTraffic(level: number): number {
@@ -71,22 +76,26 @@ export function longNightPower(vigilLevel: number): number {
   return DAWN.longNight.power + (effect.kind === 'vigil' ? effect.perLevel * vigilLevel : 0);
 }
 
-/** A long night makes a brighter dawn: the multiplier for a night of `runTime` seconds. */
-export function longNightBonus(runTime: number, vigilLevel: number): number {
+/**
+ * A long night makes a brighter dawn: the multiplier for a night of `runTime` seconds,
+ * given the bonus exponent (see longNightPower; star keystones can add to it).
+ */
+export function longNightBonus(runTime: number, power: number): number {
   const { refHours, capHours } = DAWN.longNight;
   const hours = Math.min(Math.max(0, runTime), capHours * 3600) / 3600;
-  return Math.pow(1 + hours / refHours, longNightPower(vigilLevel));
+  return Math.pow(1 + hours / refHours, power);
 }
 
 /** Glimmer a Dawn would gather right now (zero below the threshold). */
 export function dawnGain(state: GameState): Decimal {
   const runLight = state.night.runLight;
   if (runLight.lt(DAWN.threshold)) return ZERO;
+  const d = getDerived(state);
   return runLight
     .div(DAWN.threshold)
     .pow(DAWN.glimmerExponent)
-    .mul(DAWN.glimmerCoef * longNightBonus(state.night.runTime, state.dawn.upgrades.vigil))
-    .mul(getDerived(state).glimmerGainMult);
+    .mul(DAWN.glimmerCoef * longNightBonus(state.night.runTime, d.longNightPower))
+    .mul(d.glimmerGainMult);
 }
 
 /** Whether the player can greet the dawn by hand right now. */
@@ -113,6 +122,7 @@ export function buyDawnUpgrade(state: GameState, id: DawnUpgradeId, count: numbe
   const dawn = state.dawn;
   if (dawn.dawns <= 0) return 0;
   const level = dawn.upgrades[id];
+  if (level >= dawnUpgradeMaxLevel(id)) return 0;
   const affordable = dawnUpgradeAffordable(id, level, dawn.glimmer);
   const wanted = count === 'max' ? affordable : Math.min(affordable, Math.max(0, Math.floor(count)));
   if (wanted <= 0) return 0;

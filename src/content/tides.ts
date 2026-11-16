@@ -22,7 +22,7 @@ export interface MoonPhaseDef {
 
 export const TIDES = {
   /** Stone surveyed in total before the tides can be read. */
-  revealStone: 42000,
+  revealStone: 30000,
   /** Seconds each phase lasts before any Linger. Eight phases make one moon. */
   phaseSeconds: 90,
   phases: [
@@ -36,23 +36,23 @@ export const TIDES = {
     { id: 'waningCrescent', name: 'Waning crescent', traffic: 0.8, glow: 1.5, flavor: 'The night deepens toward the dark of the moon.' },
   ] satisfies readonly MoonPhaseDef[] as readonly MoonPhaseDef[],
   /** Tide per second = pullRate * max(0, coast power - pullOffset) ^ pullPower * phase traffic. */
-  pullRate: 0.004,
+  pullRate: 0.038,
   pullOffset: 0,
   pullPower: 2,
   swell: {
     /** Orders of magnitude of Light per Swell level, at all times. */
-    powerPerLevel: 0.04,
+    powerPerLevel: 0.011,
     /** Extra multiple of a phase's own Swell that applies while that phase is in the sky. */
     resonance: 1,
     /** Tide to raise a phase's Swell from level s: base * (s + offset) ^ power. */
-    cost: { base: 2, offset: 2, power: 2 },
+    cost: { base: 2, offset: 11, power: 2 },
   },
   linger: {
     /** Each level lengthens the phase by this fraction of the base duration. */
     step: 0.5,
     maxLevel: 4,
     /** Tide for Linger level l on a phase: base * ratio ^ l. */
-    cost: { base: 40, ratio: 5 },
+    cost: { base: 400, ratio: 6 },
   },
   /** Most reshaping purchases the automatic tide-reader makes in one heartbeat. */
   autoShapePerBeat: 25,

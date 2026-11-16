@@ -5,7 +5,19 @@ import { deriveSeed } from './rng';
 import { SCHEMA_VERSION } from './types';
 import { COAST } from '../content/coast';
 import { PHASE_COUNT } from '../content/tides';
-import type { CoastState, DawnState, GameState, NightState, StatsState, TidesState } from './types';
+import { CHALLENGE_ORDER } from '../content/aurora';
+import type { ChallengeId } from '../content/aurora';
+import { STAR_COUNT } from '../content/stars';
+import type {
+  AuroraState,
+  CoastState,
+  DawnState,
+  GameState,
+  NightState,
+  StarsState,
+  StatsState,
+  TidesState,
+} from './types';
 
 export function createNightState(): NightState {
   return {
@@ -14,6 +26,11 @@ export function createNightState(): NightState {
     upgrades: { wick: 0, oil: 0, lens: 0, rotation: 0 },
     shipAcc: 0,
     guideAcc: 0,
+    segStart: 0,
+    segArrived: 0,
+    segGuided: 0,
+    segRate: -1,
+    segGuide: -1,
     runTime: 0,
     lastBeat: 0,
     nextBeat: ENGINE.heartbeat.baseInterval,
@@ -64,6 +81,23 @@ export function createTidesState(): TidesState {
   };
 }
 
+export function createStarsState(): StarsState {
+  return {
+    revealed: false,
+    stardust: ZERO,
+    stardustTotal: ZERO,
+    pending: ZERO,
+    ascensions: 0,
+    levels: new Array<number>(STAR_COUNT).fill(0),
+  };
+}
+
+export function createAuroraState(): AuroraState {
+  const completions = {} as Record<ChallengeId, number>;
+  for (const id of CHALLENGE_ORDER) completions[id] = 0;
+  return { unlocked: false, active: null, completions };
+}
+
 export function createStatsState(): StatsState {
   return {
     totalLight: ZERO,
@@ -94,9 +128,13 @@ export function createInitialState(seed: number = 1): GameState {
     dawn: createDawnState(),
     coast: createCoastState(),
     tides: createTidesState(),
+    stars: createStarsState(),
+    aurora: createAuroraState(),
     stats: createStatsState(),
     events: [],
+    quiet: false,
     derived: null,
+    structure: null,
   };
 }
 
@@ -114,8 +152,12 @@ export function cloneState(state: GameState): GameState {
     dawn: { ...state.dawn, upgrades: { ...state.dawn.upgrades } },
     coast: { ...state.coast, levels: state.coast.levels.slice() },
     tides: { ...state.tides, swell: state.tides.swell.slice(), linger: state.tides.linger.slice() },
+    stars: { ...state.stars, levels: state.stars.levels.slice() },
+    aurora: { ...state.aurora, completions: { ...state.aurora.completions } },
     stats: { ...state.stats, milestones: { ...state.stats.milestones } },
     events: [],
+    quiet: false,
     derived: state.derived,
+    structure: state.structure,
   };
 }

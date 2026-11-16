@@ -4,9 +4,11 @@
  */
 import { DAWN_UPGRADE_ORDER } from '../content/dawn';
 import { NIGHT_UPGRADE_ORDER } from '../content/night';
+import { enterChallenge, leaveChallenge } from './aurora';
 import { checkReveals, updateRecords } from './automation';
 import { buildLighthouse, dawnAutomated, performSurvey, raiseLighthouse } from './coast';
 import { buyDawnUpgrade, canDawn, performDawn } from './dawn';
+import { lightStar, performAscend } from './stars';
 import { buyLinger, buySwell, performTurn } from './tides';
 import { pushEvent, reachMilestone } from './events';
 import { buyNightUpgrade } from './night';
@@ -85,6 +87,27 @@ function performAction(state: GameState, action: Action): boolean {
       pushEvent(state, { type: 'purchase', layer: 'tides', id: 'linger', count: 1, auto: false });
       return true;
     }
+    case 'ascend': {
+      updateRecords(state);
+      if (!performAscend(state)) return false;
+      state.stats.purchases += 1;
+      return true;
+    }
+    case 'lightStar': {
+      const gained = lightStar(state, action.star, action.count ?? 1);
+      if (gained <= 0) return false;
+      state.stats.purchases += 1;
+      pushEvent(state, { type: 'purchase', layer: 'stars', id: 'star', count: gained, auto: false });
+      return true;
+    }
+    case 'enterChallenge': {
+      updateRecords(state);
+      if (!enterChallenge(state, action.id)) return false;
+      state.stats.purchases += 1;
+      return true;
+    }
+    case 'leaveChallenge':
+      return leaveChallenge(state);
     default:
       return false;
   }

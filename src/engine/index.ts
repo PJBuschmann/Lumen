@@ -8,6 +8,8 @@ export * from './night';
 export * from './dawn';
 export * from './coast';
 export * from './tides';
+export * from './stars';
+export * from './aurora';
 export * from './automation';
 export * from './derive';
 export * from './tick';
